@@ -205,7 +205,11 @@ public class PlayerBodyController : MonoBehaviour
                 // this code can't handle if the crouched collider having a penetration be resolved
                 // just return false - the external code will try again later
                 if ( bhit && fDist > 0 )
+                {
+                    if ( !bTest )
+                        transform.position += -vNorm * fDist;
                     return false;
+                }
             }
 
             bool bHit = pHitColliders.Any();
@@ -279,7 +283,8 @@ public class PlayerBodyController : MonoBehaviour
         //if ( m_bEnableABH && m_bCrouched && m_iGroundFrames == 1 && pRigidBody.velocity.sqrMagnitude > m_fMaxSpeed * m_fMaxSpeed )
         //    pRigidBody.AddForce( -transform.forward * 5.0f, ForceMode.VelocityChange );
 
-        pRigidBody.velocity += Time.fixedDeltaTime * m_vGravity;
+        if ( !m_pGroundEntity )
+            pRigidBody.velocity += Time.fixedDeltaTime * m_vGravity;
         Friction();
 
         //try to walk

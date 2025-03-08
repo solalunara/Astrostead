@@ -10,5 +10,6 @@ public class PlayerFollower : MonoBehaviour
     void FixedUpdate()
     {
         transform.position = Vector3.Lerp( transform.position, FollowPlayer.transform.position, 10 * Time.fixedDeltaTime );
+        transform.rotation = Quaternion.RotateTowards( transform.rotation, FollowPlayer.transform.rotation, 120 * Time.fixedDeltaTime );
     }
 }

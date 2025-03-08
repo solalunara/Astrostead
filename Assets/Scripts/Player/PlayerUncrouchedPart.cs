@@ -4,15 +4,8 @@ using UnityEngine;
 
 public class PlayerUncrouchedPart : PlayerJumpablePart
 {
-    // Start is called before the first frame update
-    void Start()
+    void OnEnable()
     {
-        
-    }
 
-    // Update is called once per frame
-    void Update()
-    {
-        
     }
 }

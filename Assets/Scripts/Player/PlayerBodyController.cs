@@ -21,17 +21,20 @@ public class PlayerBodyController : MonoBehaviour
 
     public GameObject GroundEntity => m_pGroundEntity;
     public Quaternion CameraRotation { set => m_qCameraRotation = value; }
+    public Vector3 Up { get => m_vUp; set { m_vDesiredUp = value; } }
+    public Vector3 m_vGravity = Vector3.zero;
     public float m_fAirMoveFraction = 0.1f;
     public float m_fMaxSpeed = 3.0f;
     public float m_fMaxSprintSpeed = 6.0f;
     public int m_iGroundThreshold = 1;
     public float m_fFrictionConstant = 1.5f;
     public int m_iCoyoteFrames = 8;
-    public Vector3 m_vGravity = -9.81f * Vector3.up;
-    public Vector3 m_vJumpVector = 4.0f * Vector3.up;
+    public float m_fJumpVelocity = 4.0f;
     //public bool m_bEnableABH = true;
     public bool m_bLocalMovement = true;
 
+    Vector3 m_vDesiredUp = Vector3.up;
+    Vector3 m_vUp = Vector3.up;
     bool m_bCrouched = false;
     int m_iGroundFrames = 0;
     int m_iFramesSinceGround = 0;
@@ -113,7 +116,7 @@ public class PlayerBodyController : MonoBehaviour
 
                 foreach ( ContactPairPoint contact in contacts )
                 {
-                    if ( m_vGroundNormal.y < contact.Normal.y && contact.Normal.y > 0.7f )
+                    if ( Vector3.Dot( m_vGroundNormal, m_vUp ) < Vector3.Dot( contact.Normal, m_vUp ) && Vector3.Dot( contact.Normal, m_vUp ) > 0.7f )
                     {
                         m_vGroundCollisionPt = contact.Position;
                         m_vGroundNormal = contact.Normal;
@@ -152,7 +155,7 @@ public class PlayerBodyController : MonoBehaviour
         {
             if ( pRigidBody.velocity.sqrMagnitude == 0.0f )
                 return;
-            Vector3 vFriction = Vector3.Dot( m_vGravity, -Vector3.up ) * m_fFrictionConstant * Time.fixedDeltaTime * Vector3.Dot( m_vGroundNormal, Vector3.up ) / pRigidBody.velocity.magnitude * -pRigidBody.velocity;
+            Vector3 vFriction = Vector3.Dot( m_vGravity, -m_vUp ) * m_fFrictionConstant * Time.fixedDeltaTime * Vector3.Dot( m_vGroundNormal, m_vUp ) / pRigidBody.velocity.magnitude * -pRigidBody.velocity;
             if ( vFriction.sqrMagnitude > pRigidBody.velocity.sqrMagnitude )
                 pRigidBody.velocity = Vector3.zero;
             else
@@ -185,15 +188,18 @@ public class PlayerBodyController : MonoBehaviour
             Collider pUncrouchedUpper = pUncroucheds[ bFirstLower ? 1 : 0 ].GetComponent<Collider>();
 
             //prevent uncrouch from ground if we can't go up
-            foreach ( var pHitColliderUpper in pHitCollidersUpper )
+            if ( m_pGroundEntity )
             {
-                bool bhit = Physics.ComputePenetration( pHitColliderUpper, pHitColliderUpper.transform.position, pHitColliderUpper.transform.rotation,
-                                                        pUncrouchedUpper, pUncrouchedUpper.transform.position, pUncrouchedUpper.transform.rotation,
-                                                        out Vector3 vNorm, out float fDist );
-                vNorm = -vNorm; 
-                //normal cond - only things blocking us from above should prevent uncrouch
-                if ( bhit && fDist > 0 && vNorm.y < 0 )
-                    return false;
+                foreach ( var pHitColliderUpper in pHitCollidersUpper )
+                {
+                    bool bhit = Physics.ComputePenetration( pHitColliderUpper, pHitColliderUpper.transform.position, pHitColliderUpper.transform.rotation,
+                                                            pUncrouchedUpper, pUncrouchedUpper.transform.position, pUncrouchedUpper.transform.rotation,
+                                                            out Vector3 vNorm, out float fDist );
+                    vNorm = -vNorm; 
+                    //normal cond - only things blocking us from above should prevent uncrouch
+                    if ( bhit && fDist > 0 && Vector3.Dot( vNorm, Up ) < 0 )
+                        return false;
+                }
             }
 
             Collider pCrouchedCollider = m_pCrouchedObj.GetComponent<Collider>();
@@ -228,17 +234,17 @@ public class PlayerBodyController : MonoBehaviour
                     ptUncrouchedColliderOrigin += -vNorm * fDist;
                 }
                 vDelta += ptUncrouchedColliderOrigin - m_pUncrouchedObj.transform.position;
-                pRigidBody.velocity -= pRigidBody.velocity.y * Vector3.up;
+                pRigidBody.velocity -= Vector3.Dot( pRigidBody.velocity, Up ) * Up;
             }
             if ( bHit && m_pGroundEntity )
-                vDelta += m_vPlayerGroundUncrouchDelta;
+                vDelta += transform.TransformDirection( m_vPlayerGroundUncrouchDelta );
 
             vPos = transform.position + vDelta;
         }
         else
         {
             if ( m_iGroundFrames > 0 )
-                vPos = transform.position + m_vPlayerGroundCrouchDelta;
+                vPos = transform.position + transform.TransformDirection( m_vPlayerGroundCrouchDelta );
             else
                 vPos = transform.position;
         }
@@ -264,6 +270,13 @@ public class PlayerBodyController : MonoBehaviour
         m_iCrouchedFrames = m_iCrouchedFrames > 0 ? m_iCrouchedFrames + 1 : 0;
         m_iFramesSinceGround = m_iGroundFrames >= m_iGroundThreshold ? 0 : m_iFramesSinceGround + 1;
         m_iJumpTimer = m_iJumpTimer > 0 ? m_iJumpTimer - 1 : 0;
+
+        Vector3 vPrevUp = m_vUp;
+        m_vUp = Vector3.RotateTowards( m_vUp, m_vDesiredUp, Mathf.Deg2Rad * 45 * Time.fixedDeltaTime, 0 );
+        //Quaternion qDeltaRot = Quaternion.FromToRotation( vPrevUp, m_vUp );
+        Vector3 vNewForward = Vector3.Cross( transform.TransformDirection( Vector3.right ), m_vUp );
+        transform.rotation = Quaternion.LookRotation( m_vUp, -transform.forward ) * Quaternion.Euler( 90, 0, 0 );
+        //transform.rotation *= qDeltaRot;
 
         // crouch code has to be before move down to prevent race condition
         if ( !m_bWantsToCrouch && m_bCrouched ) //uncrouch immediately
@@ -297,7 +310,7 @@ public class PlayerBodyController : MonoBehaviour
             WalkForce += Vector3.right;
         if ( Input.GetKey( KeyCode.A ) )
             WalkForce -= Vector3.right;
-        WalkForce = WalkForce.normalized;
+        WalkForce = 0.3f * WalkForce.normalized;
 
         if ( m_bLocalMovement )
             WalkForce = m_qCameraRotation * WalkForce;
@@ -307,7 +320,7 @@ public class PlayerBodyController : MonoBehaviour
         //    return;
 
         if ( WalkForce != Vector3.zero && !m_bLocalMovement )
-            pRigidBody.rotation = Quaternion.LookRotation( WalkForce ) * Quaternion.AngleAxis( 0.0f, Vector3.up );
+            pRigidBody.rotation = Quaternion.LookRotation( WalkForce ) * Quaternion.AngleAxis( 0.0f, m_vUp );
 
         if ( m_iGroundFrames == 0 )
             WalkForce *= m_fAirMoveFraction;
@@ -336,7 +349,7 @@ public class PlayerBodyController : MonoBehaviour
         if ( Input.GetKey( KeyCode.Space ) && m_iJumpTimer == 0 && m_iFramesSinceGround < m_iCoyoteFrames )
         {
             m_iJumpTimer = m_iCoyoteFrames + 1;
-            pRigidBody.velocity += m_vJumpVector;
+            pRigidBody.velocity += m_fJumpVelocity * m_vUp;
             m_iFramesSinceGround += m_iCoyoteFrames;
         }
 

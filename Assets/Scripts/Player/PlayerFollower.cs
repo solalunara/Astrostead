@@ -7,9 +7,9 @@ public class PlayerFollower : MonoBehaviour
     public GameObject FollowPlayer;
 
     // Update is called once per frame
-    void FixedUpdate()
+    void Update()
     {
-        transform.position = Vector3.Lerp( transform.position, FollowPlayer.transform.position, 10 * Time.fixedDeltaTime );
-        transform.rotation = Quaternion.RotateTowards( transform.rotation, FollowPlayer.transform.rotation, 120 * Time.fixedDeltaTime );
+        transform.position = FollowPlayer.transform.position; //for relativistic reasons this can't be a lerp
+        transform.rotation = Quaternion.RotateTowards( transform.rotation, FollowPlayer.transform.rotation, 120 * Time.deltaTime );
     }
 }

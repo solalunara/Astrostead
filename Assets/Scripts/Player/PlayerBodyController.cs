@@ -21,7 +21,8 @@ public class PlayerBodyController : MonoBehaviour
 
     public GameObject GroundEntity => m_pGroundEntity;
     public Quaternion CameraRotation { set => m_qCameraRotation = value; }
-    public Vector3 Up { get => m_vUp; set { m_vDesiredUp = value; } }
+    public Vector3 Up => m_vUp;
+    public Vector3 BaseVelocity => m_vBaseVelocity;
     public Vector3 m_vGravity = Vector3.zero;
     public float m_fAirMoveFraction = 0.1f;
     public float m_fMaxSpeed = 3.0f;
@@ -32,6 +33,9 @@ public class PlayerBodyController : MonoBehaviour
     public float m_fJumpVelocity = 4.0f;
     //public bool m_bEnableABH = true;
     public bool m_bLocalMovement = true;
+    public Vector3 GroundCollisionPt => m_vGroundCollisionPt;
+
+    public GameObject m_pSOI = null;
 
     Vector3 m_vDesiredUp = Vector3.up;
     Vector3 m_vUp = Vector3.up;
@@ -51,6 +55,7 @@ public class PlayerBodyController : MonoBehaviour
     Vector3 m_vPlayerGroundCrouchDelta;
     Quaternion m_qCameraRotation;
     PlayerSphere m_pPlayerSphere;
+    Vector3 m_vBaseVelocity = Vector3.zero;
 
     void OnEnable()
     {
@@ -146,6 +151,14 @@ public class PlayerBodyController : MonoBehaviour
         if ( Input.GetKeyDown( KeyCode.Escape ) )
         {
         }
+
+        if ( m_pSOI )
+            m_vDesiredUp = -CalculateGravityAccel( m_pSOI.GetComponent<Rigidbody>().mass, transform.position, m_pSOI.transform.position ).normalized;
+        m_vUp = Vector3.RotateTowards( m_vUp, m_vDesiredUp, Mathf.Deg2Rad * 45 * Time.deltaTime, 0 );
+
+        //rotatetowards will return early if the vectors are close enough, which is not what we want
+        if ( Vector3.Dot( m_vUp, m_vDesiredUp ) > 0.95f )
+            m_vUp = m_vDesiredUp;
     }
 
     void Friction()
@@ -153,11 +166,13 @@ public class PlayerBodyController : MonoBehaviour
         var pRigidBody = GetComponent<Rigidbody>();
         if ( m_iGroundFrames > m_iGroundThreshold )
         {
-            if ( pRigidBody.velocity.sqrMagnitude == 0.0f )
+            Vector3 vGroundVelocity = m_pGroundEntity.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
+            Vector3 vVelocity = pRigidBody.velocity - vGroundVelocity;
+            if ( vVelocity.sqrMagnitude == 0.0f )
                 return;
-            Vector3 vFriction = Vector3.Dot( m_vGravity, -m_vUp ) * m_fFrictionConstant * Time.fixedDeltaTime * Vector3.Dot( m_vGroundNormal, m_vUp ) / pRigidBody.velocity.magnitude * -pRigidBody.velocity;
-            if ( vFriction.sqrMagnitude > pRigidBody.velocity.sqrMagnitude )
-                pRigidBody.velocity = Vector3.zero;
+            Vector3 vFriction = Vector3.Dot( m_vGravity, -m_vUp ) * m_fFrictionConstant * Time.fixedDeltaTime * Vector3.Dot( m_vGroundNormal, m_vUp ) / vVelocity.magnitude * -vVelocity;
+            if ( vFriction.sqrMagnitude > vVelocity.sqrMagnitude )
+                pRigidBody.velocity = vGroundVelocity;
             else
                 pRigidBody.velocity += vFriction;
         }
@@ -271,12 +286,13 @@ public class PlayerBodyController : MonoBehaviour
         m_iFramesSinceGround = m_iGroundFrames >= m_iGroundThreshold ? 0 : m_iFramesSinceGround + 1;
         m_iJumpTimer = m_iJumpTimer > 0 ? m_iJumpTimer - 1 : 0;
 
-        Vector3 vPrevUp = m_vUp;
-        m_vUp = Vector3.RotateTowards( m_vUp, m_vDesiredUp, Mathf.Deg2Rad * 45 * Time.fixedDeltaTime, 0 );
-        //Quaternion qDeltaRot = Quaternion.FromToRotation( vPrevUp, m_vUp );
-        Vector3 vNewForward = Vector3.Cross( transform.TransformDirection( Vector3.right ), m_vUp );
         transform.rotation = Quaternion.LookRotation( m_vUp, -transform.forward ) * Quaternion.Euler( 90, 0, 0 );
-        //transform.rotation *= qDeltaRot;
+
+        if ( m_pSOI )
+            m_vBaseVelocity = m_pSOI.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
+        else
+            m_vBaseVelocity = Vector3.zero;
+        Vector3 vVelocity = pRigidBody.velocity - m_vBaseVelocity;
 
         // crouch code has to be before move down to prevent race condition
         if ( !m_bWantsToCrouch && m_bCrouched ) //uncrouch immediately
@@ -327,14 +343,14 @@ public class PlayerBodyController : MonoBehaviour
 
         float fMaxSpeed = m_bSprinting ? m_fMaxSprintSpeed : m_fMaxSpeed;
 
-        if ( pRigidBody.velocity.sqrMagnitude < fMaxSpeed * fMaxSpeed )
+        if ( vVelocity.sqrMagnitude < fMaxSpeed * fMaxSpeed )
         {
             // clamp walk force to only add up to max speed
-            if ( ( pRigidBody.velocity + WalkForce ).sqrMagnitude > fMaxSpeed * fMaxSpeed )
+            if ( ( vVelocity + WalkForce ).sqrMagnitude > fMaxSpeed * fMaxSpeed )
             {
                 float __A = WalkForce.sqrMagnitude;
-                float __B = 2 * Vector3.Dot( pRigidBody.velocity, WalkForce );
-                float __C = pRigidBody.velocity.sqrMagnitude - fMaxSpeed * fMaxSpeed;
+                float __B = 2 * Vector3.Dot( vVelocity, WalkForce );
+                float __C = vVelocity.sqrMagnitude - fMaxSpeed * fMaxSpeed;
                 float fScaleFactor = -__B + Mathf.Sqrt( __B * __B - 4 * __A * __C );
                 fScaleFactor /= 2 * __A;
                 if ( fScaleFactor < 0 || fScaleFactor > 1 )

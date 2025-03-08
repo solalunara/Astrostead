@@ -4,15 +4,9 @@ using UnityEngine;
 
 public class InitialVelocity : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
+    public Vector3 m_vInitialVelocity;
+    void OnEnable()
     {
-        GetComponent<Rigidbody>().velocity += 4.0f * Vector3.right;
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
+        GetComponent<Rigidbody>().velocity = m_vInitialVelocity;
     }
 }

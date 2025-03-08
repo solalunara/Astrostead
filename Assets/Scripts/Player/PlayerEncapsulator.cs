@@ -42,7 +42,7 @@ public class PlayerEncapsulator : MonoBehaviour
     void FixedUpdate()
     {
         SetSOI( out Vector3 vTotalGravity );
-        m_pPlayerController.Up = m_vSOIUp;
+        m_pPlayerController.m_pSOI = m_pSOI ? m_pSOI.gameObject : null;
         m_pPlayerController.m_vGravity = vTotalGravity;
     }
 }

@@ -42,7 +42,13 @@ public class PlayerEncapsulator : MonoBehaviour
     void FixedUpdate()
     {
         SetSOI( out Vector3 vTotalGravity );
-        m_pPlayerController.m_pSOI = m_pSOI ? m_pSOI.gameObject : null;
+        if ( m_pSOI )
+            if ( m_pSOI.gameObject.name != "Sun" ) // sun has an unintuitively large SOI
+                m_pPlayerController.m_pSOI = m_pSOI.gameObject;
+            else
+                m_pPlayerController.m_pSOI = null;
+        else
+            m_pPlayerController.m_pSOI = null;
         m_pPlayerController.m_vGravity = vTotalGravity;
     }
 }

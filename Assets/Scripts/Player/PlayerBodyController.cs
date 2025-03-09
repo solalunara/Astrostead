@@ -13,16 +13,16 @@ using Quaternion = UnityEngine.Quaternion;
 using Cursor = UnityEngine.Cursor;
 using static Statics;
 
-[RequireComponent(typeof(Rigidbody))]
 public class PlayerBodyController : MonoBehaviour
 {
     const float EPSILON = 0.01f;
 
 
     public GameObject GroundEntity => m_pGroundEntity;
-    public Quaternion CameraRotation { set => m_qCameraRotation = value; }
     public Vector3 Up => m_vUp;
     public Vector3 BaseVelocity => m_vBaseVelocity;
+    public Quaternion m_qCameraRotation;
+    public Quaternion m_qCameraPivotRotation;
     public Vector3 m_vGravity = Vector3.zero;
     public float m_fAirMoveFraction = 0.1f;
     public float m_fMaxSpeed = 3.0f;
@@ -37,8 +37,9 @@ public class PlayerBodyController : MonoBehaviour
 
     public GameObject m_pSOI = null;
 
-    Vector3 m_vDesiredUp = Vector3.up;
-    Vector3 m_vUp = Vector3.up;
+    Rigidbody m_pRigidbody;
+    Vector3 m_vUp => transform.up;
+    Vector3 m_vForward => transform.forward;
     bool m_bCrouched = false;
     int m_iGroundFrames = 0;
     int m_iFramesSinceGround = 0;
@@ -53,15 +54,16 @@ public class PlayerBodyController : MonoBehaviour
     GameObject m_pCrouchedObj;
     Vector3 m_vPlayerGroundUncrouchDelta;
     Vector3 m_vPlayerGroundCrouchDelta;
-    Quaternion m_qCameraRotation;
     PlayerSphere m_pPlayerSphere;
     Vector3 m_vBaseVelocity = Vector3.zero;
+    KeyCode iCrouchKey = KeyCode.None;
 
     void OnEnable()
     {
-        m_pUncrouchedObj = GetComponentInChildren<PlayerUncrouchedPart>().gameObject;
-        m_pCrouchedObj = GetComponentInChildren<PlayerCrouchedPart>( true ).gameObject;
-        m_pPlayerSphere = GetComponentInChildren<PlayerSphere>();
+        m_pUncrouchedObj = transform.parent.GetComponentInChildren<PlayerUncrouchedPart>().gameObject;
+        m_pCrouchedObj = transform.parent.GetComponentInChildren<PlayerCrouchedPart>( true ).gameObject;
+        m_pPlayerSphere = transform.parent.GetComponentInChildren<PlayerSphere>();
+        m_pRigidbody = transform.GetComponent<Rigidbody>();
         Physics.ContactEvent += Physics_ContactEvent;
 
         m_pCrouchedObj.SetActive( true );
@@ -88,10 +90,10 @@ public class PlayerBodyController : MonoBehaviour
             Component rSecond = Header.OtherBody;
 
             PlayerBodyController pBody = null;
-            if ( rFirst  &&  rFirst.gameObject.GetComponent<PlayerBodyController>() )
-                pBody =  rFirst.gameObject.GetComponent<PlayerBodyController>();
-            if ( rSecond && rSecond.gameObject.GetComponent<PlayerBodyController>() )
-                pBody = rSecond.gameObject.GetComponent<PlayerBodyController>();
+            if ( rFirst  &&  rFirst.gameObject.GetComponentInChildren<PlayerBodyController>() )
+                pBody =  rFirst.gameObject.GetComponentInChildren<PlayerBodyController>();
+            if ( rSecond && rSecond.gameObject.GetComponentInChildren<PlayerBodyController>() )
+                pBody = rSecond.gameObject.GetComponentInChildren<PlayerBodyController>();
 
             if ( !pBody )
                 continue;
@@ -121,7 +123,8 @@ public class PlayerBodyController : MonoBehaviour
 
                 foreach ( ContactPairPoint contact in contacts )
                 {
-                    if ( Vector3.Dot( m_vGroundNormal, m_vUp ) < Vector3.Dot( contact.Normal, m_vUp ) && Vector3.Dot( contact.Normal, m_vUp ) > 0.7f )
+                    Vector3 vNorm = bReversed ? -contact.Normal : contact.Normal;
+                    if ( Vector3.Dot( m_vGroundNormal, m_vUp ) < Vector3.Dot( vNorm, m_vUp ) && Vector3.Dot( vNorm, m_vUp ) > 0.7f )
                     {
                         m_vGroundCollisionPt = contact.Position;
                         m_vGroundNormal = contact.Normal;
@@ -135,9 +138,17 @@ public class PlayerBodyController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if ( Input.GetKeyDown( KeyCode.LeftControl ) )
+        if ( Input.GetKeyDown( KeyCode.LeftControl ) && m_pGroundEntity )
+        {
             m_bWantsToCrouch = true;
-        else if ( Input.GetKeyUp( KeyCode.LeftControl ) )
+            iCrouchKey = KeyCode.LeftControl;
+        }
+        if ( Input.GetKeyDown( KeyCode.C ) && !m_pGroundEntity )
+        {
+            m_bWantsToCrouch = true;
+            iCrouchKey = KeyCode.C;
+        }
+        if ( Input.GetKeyUp( iCrouchKey ) )
             m_bWantsToCrouch = false;
 
         if ( Input.GetKeyDown( KeyCode.LeftShift ) )
@@ -151,36 +162,26 @@ public class PlayerBodyController : MonoBehaviour
         if ( Input.GetKeyDown( KeyCode.Escape ) )
         {
         }
-
-        if ( m_pSOI )
-            m_vDesiredUp = -CalculateGravityAccel( m_pSOI.GetComponent<Rigidbody>().mass, transform.position, m_pSOI.transform.position ).normalized;
-        m_vUp = Vector3.RotateTowards( m_vUp, m_vDesiredUp, Mathf.Deg2Rad * 45 * Time.deltaTime, 0 );
-
-        //rotatetowards will return early if the vectors are close enough, which is not what we want
-        if ( Vector3.Dot( m_vUp, m_vDesiredUp ) > 0.95f )
-            m_vUp = m_vDesiredUp;
     }
 
     void Friction()
     {
-        var pRigidBody = GetComponent<Rigidbody>();
         if ( m_iGroundFrames > m_iGroundThreshold )
         {
             Vector3 vGroundVelocity = m_pGroundEntity.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
-            Vector3 vVelocity = pRigidBody.velocity - vGroundVelocity;
+            Vector3 vVelocity = m_pRigidbody.velocity - vGroundVelocity;
             if ( vVelocity.sqrMagnitude == 0.0f )
                 return;
             Vector3 vFriction = Vector3.Dot( m_vGravity, -m_vUp ) * m_fFrictionConstant * Time.fixedDeltaTime * Vector3.Dot( m_vGroundNormal, m_vUp ) / vVelocity.magnitude * -vVelocity;
             if ( vFriction.sqrMagnitude > vVelocity.sqrMagnitude )
-                pRigidBody.velocity = vGroundVelocity;
+                m_pRigidbody.velocity = vGroundVelocity;
             else
-                pRigidBody.velocity += vFriction;
+                m_pRigidbody.velocity += vFriction;
         }
     }
 
     bool SetCrouchedState( bool bCrouch, bool bTest = false )
     {
-        var pRigidBody = GetComponent<Rigidbody>();
         bool bChangingState = bCrouch != m_bCrouched;
         if ( !bChangingState )
             return false;
@@ -249,7 +250,7 @@ public class PlayerBodyController : MonoBehaviour
                     ptUncrouchedColliderOrigin += -vNorm * fDist;
                 }
                 vDelta += ptUncrouchedColliderOrigin - m_pUncrouchedObj.transform.position;
-                pRigidBody.velocity -= Vector3.Dot( pRigidBody.velocity, Up ) * Up;
+                m_pRigidbody.velocity -= Vector3.Dot( m_pRigidbody.velocity, Up ) * Up;
             }
             if ( bHit && m_pGroundEntity )
                 vDelta += transform.TransformDirection( m_vPlayerGroundUncrouchDelta );
@@ -277,45 +278,9 @@ public class PlayerBodyController : MonoBehaviour
         return true;
     }
 
-    void FixedUpdate()
+    void WalkMove()
     {
-        var pRigidBody = GetComponent<Rigidbody>();
-
-        m_iGroundFrames = GroundEntity != null ? m_iGroundFrames + 1 : 0;
-        m_iCrouchedFrames = m_iCrouchedFrames > 0 ? m_iCrouchedFrames + 1 : 0;
-        m_iFramesSinceGround = m_iGroundFrames >= m_iGroundThreshold ? 0 : m_iFramesSinceGround + 1;
-        m_iJumpTimer = m_iJumpTimer > 0 ? m_iJumpTimer - 1 : 0;
-
-        transform.rotation = Quaternion.LookRotation( m_vUp, -transform.forward ) * Quaternion.Euler( 90, 0, 0 );
-
-        if ( m_pSOI )
-            m_vBaseVelocity = m_pSOI.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
-        else
-            m_vBaseVelocity = Vector3.zero;
-        Vector3 vVelocity = pRigidBody.velocity - m_vBaseVelocity;
-
-        // crouch code has to be before move down to prevent race condition
-        if ( !m_bWantsToCrouch && m_bCrouched ) //uncrouch immediately
-        {
-            SetCrouchedState( m_bWantsToCrouch );
-            m_iCrouchedFrames = 0;
-        }
-        if ( m_bWantsToCrouch && !m_bCrouched ) //start crouch timer immediately
-            if ( m_iCrouchedFrames == 0 )
-                m_iCrouchedFrames = 1;
-        if ( ( m_iCrouchedFrames > m_iCoyoteFrames && m_pUncrouchedObj.activeSelf ) || //crouch only once we're sure we're not crouch jumping
-             ( m_bWantsToCrouch && !m_pGroundEntity ) ) //
-            SetCrouchedState( true );
-
-
-
-        //if ( m_bEnableABH && m_bCrouched && m_iGroundFrames == 1 && pRigidBody.velocity.sqrMagnitude > m_fMaxSpeed * m_fMaxSpeed )
-        //    pRigidBody.AddForce( -transform.forward * 5.0f, ForceMode.VelocityChange );
-
-        if ( !m_pGroundEntity )
-            pRigidBody.velocity += Time.fixedDeltaTime * m_vGravity;
-        Friction();
-
+        Vector3 vVelocity = m_pRigidbody.velocity - m_vBaseVelocity;
         //try to walk
         Vector3 WalkForce = Vector3.zero;
         if ( Input.GetKey( KeyCode.W ) )
@@ -329,14 +294,10 @@ public class PlayerBodyController : MonoBehaviour
         WalkForce = 0.3f * WalkForce.normalized;
 
         if ( m_bLocalMovement )
-            WalkForce = m_qCameraRotation * WalkForce;
-
-        //run below only if unpaused
-        //if ( ActivePuzzles != 0 )
-        //    return;
+            WalkForce = m_qCameraPivotRotation * WalkForce;
 
         if ( WalkForce != Vector3.zero && !m_bLocalMovement )
-            pRigidBody.rotation = Quaternion.LookRotation( WalkForce ) * Quaternion.AngleAxis( 0.0f, m_vUp );
+            m_pRigidbody.rotation = Quaternion.LookRotation( WalkForce ) * Quaternion.AngleAxis( 0.0f, m_vUp );
 
         if ( m_iGroundFrames == 0 )
             WalkForce *= m_fAirMoveFraction;
@@ -358,14 +319,86 @@ public class PlayerBodyController : MonoBehaviour
                 WalkForce *= fScaleFactor;
             }
 
-            pRigidBody.AddForce( WalkForce, ForceMode.VelocityChange );
+            m_pRigidbody.AddForce( WalkForce, ForceMode.VelocityChange );
         }
+    }
 
+    void AirMove()
+    {
+        Vector3 vVelocity = m_pRigidbody.velocity - m_vBaseVelocity;
+
+        Vector3 Force = Vector3.zero;
+        if ( Input.GetKey( KeyCode.W ) )
+            Force += Vector3.forward;
+        if ( Input.GetKey( KeyCode.S ) )
+            Force -= Vector3.forward;
+        if ( Input.GetKey( KeyCode.D ) )
+            Force += Vector3.right;
+        if ( Input.GetKey( KeyCode.A ) )
+            Force -= Vector3.right;
+        if ( Input.GetKey( KeyCode.LeftShift ) )
+            Force += Vector3.up;
+        if ( Input.GetKey( KeyCode.LeftControl ) )
+            Force -= Vector3.up;
+        Force = 0.3f * Force.normalized;
+
+        if ( m_bLocalMovement )
+            Force = m_qCameraPivotRotation * Force;
+
+        if ( Force != Vector3.zero && !m_bLocalMovement )
+            m_pRigidbody.rotation = Quaternion.LookRotation( Force ) * Quaternion.AngleAxis( 0.0f, m_vUp );
+
+        if ( m_iGroundFrames == 0 )
+            Force *= m_fAirMoveFraction;
+
+        m_pRigidbody.AddForce( Force, ForceMode.VelocityChange );
+    }
+
+    void FixedUpdate()
+    {
+        m_iGroundFrames = GroundEntity != null ? m_iGroundFrames + 1 : 0;
+        m_iCrouchedFrames = m_iCrouchedFrames > 0 ? m_iCrouchedFrames + 1 : 0;
+        m_iFramesSinceGround = m_iGroundFrames >= m_iGroundThreshold ? 0 : m_iFramesSinceGround + 1;
+        m_iJumpTimer = m_iJumpTimer > 0 ? m_iJumpTimer - 1 : 0;
+
+        transform.rotation = Quaternion.LookRotation( m_vUp, -m_vForward ) * Quaternion.Euler( 90, 0, 0 );
+
+        if ( m_pSOI )
+            m_vBaseVelocity = m_pSOI.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
+        else
+            m_vBaseVelocity = Vector3.zero;
+
+        // crouch code has to be before move down to prevent race condition
+        if ( !m_bWantsToCrouch && m_bCrouched ) //uncrouch immediately
+        {
+            SetCrouchedState( m_bWantsToCrouch );
+            m_iCrouchedFrames = 0;
+        }
+        if ( m_bWantsToCrouch && !m_bCrouched ) //start crouch timer immediately
+            if ( m_iCrouchedFrames == 0 )
+                m_iCrouchedFrames = 1;
+        if ( ( m_iCrouchedFrames > m_iCoyoteFrames && m_pUncrouchedObj.activeSelf ) || //crouch only once we're sure we're not crouch jumping
+             ( m_bWantsToCrouch && !m_pGroundEntity ) ) //
+            SetCrouchedState( true );
+
+
+
+        //if ( m_bEnableABH && m_bCrouched && m_iGroundFrames == 1 && m_pRigidbody.velocity.sqrMagnitude > m_fMaxSpeed * m_fMaxSpeed )
+        //    m_pRigidbody.AddForce( -transform.forward * 5.0f, ForceMode.VelocityChange );
+
+        if ( !m_pGroundEntity )
+            m_pRigidbody.velocity += Time.fixedDeltaTime * m_vGravity;
+        Friction();
+
+        if ( m_pGroundEntity )
+            WalkMove();
+        else
+            AirMove();
 
         if ( Input.GetKey( KeyCode.Space ) && m_iJumpTimer == 0 && m_iFramesSinceGround < m_iCoyoteFrames )
         {
             m_iJumpTimer = m_iCoyoteFrames + 1;
-            pRigidBody.velocity += m_fJumpVelocity * m_vUp;
+            m_pRigidbody.velocity += m_fJumpVelocity * m_vUp;
             m_iFramesSinceGround += m_iCoyoteFrames;
         }
 

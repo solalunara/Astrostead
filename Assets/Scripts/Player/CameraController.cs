@@ -1,19 +1,24 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using static Statics;
 
 public class CameraController : MonoBehaviour
 {
     public bool m_bLocalMovement = true;
     public float m_fMouseSpeed = 1000.0f;
     float m_fRotationX = 0.0f;
+    float m_fRotationY = 0.0f;
     Camera m_pCamera;
-    GameObject m_pPlayer;
+    PlayerBodyController m_pPlayer;
+    Quaternion qTargetLocalRot = Quaternion.identity;
+    Quaternion qTargetParentRot = Quaternion.identity;
+    bool m_bWasInSOILastFrame = false;
 
     void OnEnable()
     {
         m_pCamera = GetComponentInChildren<Camera>();
-        m_pPlayer = GetComponentInParent<PlayerFollower>().FollowPlayer;
+        m_pPlayer = transform.parent.parent.GetComponentInChildren<PlayerBodyController>();
     }
 
     // Update is called once per frame
@@ -46,17 +51,69 @@ public class CameraController : MonoBehaviour
                 }
             }
 
+            // should not be a lerp for relativistic reasons
+            transform.parent.position = m_pPlayer.transform.position;
+            Vector3 vUp;
+            Vector3 vForward;
+
+            float x, y;
+            x = y = 0.0f;
+
             if ( Cursor.lockState == CursorLockMode.Locked )
             {
-                float y = -Input.GetAxis( "Mouse Y" );
-                float x = Input.GetAxis( "Mouse X" );
+                y = -Input.GetAxis( "Mouse Y" );
+                x = Input.GetAxis( "Mouse X" );
+                m_fRotationY += x * m_fMouseSpeed * Time.deltaTime;
                 m_fRotationX += y * m_fMouseSpeed * Time.deltaTime;
                 m_fRotationX = Mathf.Clamp( m_fRotationX, -90.0f, 90.0f );
-                transform.localRotation = Quaternion.AngleAxis( m_fRotationX, Vector3.right );
-                transform.parent.localRotation *= Quaternion.AngleAxis( x * m_fMouseSpeed * Time.deltaTime, new Vector3( 0, 1, 0 ) );
+
+                if ( m_fRotationY >  360.0f )
+                    m_fRotationY -= 360.0f;
+                if ( m_fRotationY < -360.0f )
+                    m_fRotationY += 360.0f;
             }
+
+            if ( m_pPlayer.m_pSOI )
+            {
+                vUp = -CalculateGravityAccel( m_pPlayer.m_pSOI.GetComponent<Rigidbody>().mass, m_pPlayer.transform.position, m_pPlayer.m_pSOI.transform.position ).normalized;
+                if ( !m_bWasInSOILastFrame )
+                {
+                    m_bWasInSOILastFrame = true;
+                    // try to find a value for m_fRotationX using the angle from transform.forward to the horizon
+                    m_fRotationX = Mathf.Acos( Vector3.Dot( vUp, transform.forward ) );
+                }
+
+                Vector3 vRight = Vector3.Cross( transform.parent.forward, vUp );
+                vForward = Vector3.Cross( vUp, vRight ).normalized;
+                vForward = Quaternion.AngleAxis( x * m_fMouseSpeed * Time.deltaTime, vUp ) * vForward;
+
+                qTargetLocalRot = Quaternion.AngleAxis( m_fRotationX, Vector3.right );
+            }
+            else
+            {
+                if ( m_bWasInSOILastFrame )
+                    m_bWasInSOILastFrame = false;
+
+                Vector3 vRight = Vector3.Cross( transform.parent.forward, transform.parent.up );
+                Quaternion qInputRotation = Quaternion.AngleAxis( y * m_fMouseSpeed * Time.deltaTime, -vRight ) * 
+                                            Quaternion.AngleAxis( x * m_fMouseSpeed * Time.deltaTime, transform.parent.up );
+                vUp = qInputRotation * transform.parent.up;
+                vForward = qInputRotation * transform.parent.forward;
+
+                // no SOI - camera pivot will deal with the x rotation
+                qTargetLocalRot = Quaternion.identity;
+            }
+
+            qTargetParentRot = Quaternion.LookRotation( vUp, -vForward ) * Quaternion.Euler( 90, 0, 0 );
+
+            transform.parent.rotation = Quaternion.RotateTowards( transform.parent.rotation, qTargetParentRot, 1800 * Time.deltaTime );
+            transform.localRotation = Quaternion.RotateTowards( transform.localRotation, qTargetLocalRot, 1800 * Time.deltaTime );
+
+            m_pPlayer.transform.rotation = Quaternion.RotateTowards( m_pPlayer.transform.rotation, transform.parent.rotation, 180 * Time.deltaTime );
         }
 
-        m_pPlayer.GetComponent<PlayerBodyController>().CameraRotation = transform.parent.rotation;
+
+        m_pPlayer.m_qCameraRotation = transform.rotation;
+        m_pPlayer.m_qCameraPivotRotation = transform.parent.rotation;
     }
 }

@@ -127,7 +127,7 @@ public class PlayerBodyController : MonoBehaviour
                     if ( Vector3.Dot( m_vGroundNormal, m_vUp ) < Vector3.Dot( vNorm, m_vUp ) && Vector3.Dot( vNorm, m_vUp ) > 0.7f )
                     {
                         m_vGroundCollisionPt = contact.Position;
-                        m_vGroundNormal = contact.Normal;
+                        m_vGroundNormal = vNorm;
                         m_pGroundEntity = pOtherObject;
                     }
                 }

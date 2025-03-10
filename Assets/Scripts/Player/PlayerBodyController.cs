@@ -168,7 +168,7 @@ public class PlayerBodyController : MonoBehaviour
     {
         if ( m_iGroundFrames > m_iGroundThreshold )
         {
-            Vector3 vGroundVelocity = m_pGroundEntity.GetComponent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
+            Vector3 vGroundVelocity = m_pGroundEntity.GetComponentInParent<Rigidbody>().GetPointVelocity( m_vGroundCollisionPt );
             Vector3 vVelocity = m_pRigidbody.velocity - vGroundVelocity;
             if ( vVelocity.sqrMagnitude == 0.0f )
                 return;

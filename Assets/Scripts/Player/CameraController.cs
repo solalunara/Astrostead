@@ -7,6 +7,8 @@ public class CameraController : MonoBehaviour
 {
     public bool m_bLocalMovement = true;
     public float m_fMouseSpeed = 1000.0f;
+    public float m_fPlayerDegreesPerSecond = 360.0f;
+    public float m_fCameraSmoothingDegreesPerSecond = 1800.0f;
     float m_fRotationX = 0.0f;
     float m_fRotationY = 0.0f;
     Camera m_pCamera;
@@ -79,8 +81,11 @@ public class CameraController : MonoBehaviour
                 if ( !m_bWasInSOILastFrame )
                 {
                     m_bWasInSOILastFrame = true;
-                    // try to find a value for m_fRotationX using the angle from transform.forward to the horizon
-                    m_fRotationX = Mathf.Acos( Vector3.Dot( vUp, transform.forward ) );
+                    // try to find a value for m_fRotationX using the angle from the horizon to transform.forward
+                    Vector3 vCamRight = Vector3.Cross( transform.forward, vUp ).normalized;
+                    Vector3 vHorizon = Vector3.Cross( vUp, vCamRight );
+                    m_fRotationX = Vector3.SignedAngle( transform.forward, vHorizon, vCamRight );
+                    m_fRotationX = Mathf.Clamp( m_fRotationX, -90.0f, 90.0f );
                 }
 
                 Vector3 vRight = Vector3.Cross( transform.parent.forward, vUp );
@@ -106,10 +111,10 @@ public class CameraController : MonoBehaviour
 
             qTargetParentRot = Quaternion.LookRotation( vUp, -vForward ) * Quaternion.Euler( 90, 0, 0 );
 
-            transform.parent.rotation = Quaternion.RotateTowards( transform.parent.rotation, qTargetParentRot, 1800 * Time.deltaTime );
-            transform.localRotation = Quaternion.RotateTowards( transform.localRotation, qTargetLocalRot, 1800 * Time.deltaTime );
+            transform.parent.rotation = Quaternion.RotateTowards( transform.parent.rotation, qTargetParentRot, m_fCameraSmoothingDegreesPerSecond * Time.deltaTime );
+            transform.localRotation = Quaternion.RotateTowards( transform.localRotation, qTargetLocalRot, m_fCameraSmoothingDegreesPerSecond * Time.deltaTime );
 
-            m_pPlayer.transform.rotation = Quaternion.RotateTowards( m_pPlayer.transform.rotation, transform.parent.rotation, 180 * Time.deltaTime );
+            m_pPlayer.transform.rotation = Quaternion.RotateTowards( m_pPlayer.transform.rotation, transform.parent.rotation, m_fPlayerDegreesPerSecond * Time.deltaTime );
         }
 
 

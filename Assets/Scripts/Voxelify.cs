@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading.Tasks;
 using Unity.Jobs;
@@ -11,7 +12,11 @@ public class Voxelify : MonoBehaviour
     public Vector3 m_vVoxelSize;
     public Material m_pVoxelMaterial;
     Geometry m_iGeometry;
-    List<Voxel> m_pVoxels = new();
+
+    // Cartesian:    u - x, v - y, w - z
+    // Cylindrical:  u - r, v - y, w - theta
+    // Spherical:    u - r, v - phi, w - theta 
+    readonly Dictionary<Vector3Int, Voxel> m_pVoxels = new();
 
     void OnEnable()
     {
@@ -35,6 +40,8 @@ public class Voxelify : MonoBehaviour
         foreach ( var pRenderer in GetComponents<Renderer>() )
             pRenderer.enabled = false;
 
+        int u, v, w;
+        u = v = w = 0;
         switch ( m_iGeometry )
         {
             case Geometry.CARTESIAN:
@@ -43,20 +50,42 @@ public class Voxelify : MonoBehaviour
                 for ( int i = 0; i < 3; ++i )
                     vSize[ i ] *= transform.lossyScale[ i ];
 
-                for ( float u = -vSize.x + m_vVoxelSize.x / 2; u < vSize.x; u += m_vVoxelSize.x )
+                for ( u = 0; u * m_vVoxelSize.x + ( -vSize.x + m_vVoxelSize.x ) / 2.0f < vSize.x / 2.0f; ++u )
                 {
-                    for ( float v = -vSize.y + m_vVoxelSize.y / 2; v < vSize.y; v += m_vVoxelSize.y )
+                    for ( v = 0; v * m_vVoxelSize.y + ( -vSize.y + m_vVoxelSize.y ) / 2.0f < vSize.y / 2.0f; ++v )
                     {
-                        for ( float w = -vSize.z + m_vVoxelSize.z / 2; w < vSize.z; w += m_vVoxelSize.z )
+                        for ( w = 0; w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f < vSize.z / 2.0f; ++w )
                         {
-                            Vector3 vVoxelCentre = new( u, v, w );
+                            Vector3Int viVoxelCoords = new( u, v, w );
+                            Vector3 vVoxelCentre = new( u * m_vVoxelSize.x + ( -vSize.x + m_vVoxelSize.x ) / 2.0f, 
+                                                        v * m_vVoxelSize.y + ( -vSize.y + m_vVoxelSize.y ) / 2.0f, 
+                                                        w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f );
+                            for ( int i = 0; i < 3; ++i )
+                                vVoxelCentre[ i ] /= transform.lossyScale[ i ];
                             GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
                             pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
                             pVoxelObj.transform.parent = transform;
-                            pVoxelObj.transform.position = vVoxelCentre + transform.position;
+                            pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
-                            m_pVoxels.Add( pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels.Last().InstantiateGeometryData( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+                            m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
+                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+
+                            // if we're an edge, tell the voxel that
+                            List<Vector3> pNorms = new();
+                            if ( u == 0 )
+                                pNorms.Add( -Vector3.right   );
+                            if ( vVoxelCentre.x * transform.lossyScale.x + m_vVoxelSize.x >= vSize.x / 2.0f )
+                                pNorms.Add(  Vector3.right   );
+                            if ( v == 0 )
+                                pNorms.Add( -Vector3.up      );
+                            if ( vVoxelCentre.y * transform.lossyScale.y + m_vVoxelSize.y >= vSize.y / 2.0f )
+                                pNorms.Add(  Vector3.up      );
+                            if ( w == 0 )
+                                pNorms.Add( -Vector3.forward );
+                            if ( vVoxelCentre.z * transform.lossyScale.z + m_vVoxelSize.z >= vSize.z / 2.0f )
+                                pNorms.Add(  Vector3.forward );
+
+                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
                         }
                     }
                 }
@@ -69,8 +98,9 @@ public class Voxelify : MonoBehaviour
                 float fRadiusMax = pCapsuleCollider.radius * transform.lossyScale[ 0 ];
                 float fDeltaRadius = m_vVoxelSize[ 0 ];
 
-                for ( float fRadius = fDeltaRadius / 2.0f; fRadius < fRadiusMax; fRadius += fDeltaRadius )
+                for ( u = 0; u * fDeltaRadius + fDeltaRadius / 2.0f < fRadiusMax; ++u )
                 {
+                    float fRadius = u * fDeltaRadius + fDeltaRadius / 2.0f;
                     float fInnerRadius = fRadius - m_vVoxelSize[ 0 ] / 2.0f;
                     float fOuterRadius = fRadius + m_vVoxelSize[ 0 ] / 2.0f;
 
@@ -81,18 +111,34 @@ public class Voxelify : MonoBehaviour
                     while ( fInnerRadius * fDeltaThetaInner > m_vVoxelSize[ 2 ] )
                         fDeltaThetaInner /= 2.0f;
 
-                    for ( float fTheta = fDeltaTheta / 2.0f; fTheta < 2 * Mathf.PI; fTheta += fDeltaTheta )
+                    for ( w = 0; ( w + 0.5f ) * fDeltaTheta < 2 * Mathf.PI; ++w )
                     {
-                        for ( float z = -fHeight / 2.0f + fDeltaHeight / 2.0f; z < fHeight / 2.0f; z += fDeltaHeight )
+                        float fTheta = w * fDeltaTheta + fDeltaTheta / 2.0f;
+                        for ( v = 0; v * fDeltaHeight + ( -fHeight + fDeltaHeight ) / 2.0f < fHeight / 2.0f; ++v )
                         {
-                            Vector3 vVoxelCentre = new( fRadius * Mathf.Cos( fTheta ), z, fRadius * Mathf.Sin( fTheta ) );
+                            Vector3Int viVoxelCoords = new( u, v, w );
+                            float fY = v * fDeltaHeight + ( -fHeight + fDeltaHeight ) / 2.0f;
+                            Vector3 vVoxelCentre = new( fRadius * Mathf.Cos( fTheta ), fY, fRadius * Mathf.Sin( fTheta ) );
+                            for ( int i = 0; i < 3; ++i )
+                                vVoxelCentre[ i ] /= transform.lossyScale[ i ];
                             GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
                             pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
                             pVoxelObj.transform.parent = transform;
-                            pVoxelObj.transform.position = vVoxelCentre + transform.position;
+                            pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
-                            m_pVoxels.Add( pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels.Last().InstantiateGeometryData( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+                            m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
+                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+
+                            // if we're an edge, tell the voxel that
+                            List<Vector3> pNorms = new();
+                            if ( fRadius + fDeltaRadius >= fRadiusMax )
+                                pNorms.Add( new Vector3( Mathf.Cos( fTheta ), 0, Mathf.Sin( fTheta ) ) );
+                            if ( v == 0 )
+                                pNorms.Add( -Vector3.up );
+                            if ( fY + fDeltaHeight >= fHeight / 2.0f )
+                                pNorms.Add(  Vector3.up );
+
+                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
                         }
                     }
                 }
@@ -100,8 +146,36 @@ public class Voxelify : MonoBehaviour
                 break;
 
             case Geometry.SPHERICAL:
+                /*
                 SphereCollider pSphereCollider = GetComponent<SphereCollider>();
+                float fSRadiusMax = pSphereCollider.radius * transform.lossyScale[ 0 ];
+                float fSDeltaRadius = m_vVoxelSize[ 0 ];
+                for ( float fSRadius = fSDeltaRadius / 2.0f; fSRadius < fSRadiusMax; fSRadius += fSDeltaRadius )
+                {
+                    float fInnerRadius = fSRadius - m_vVoxelSize[ 0 ] / 2.0f;
+                    float fOuterRadius = fSRadius + m_vVoxelSize[ 0 ] / 2.0f;
+
+                    float fDeltaTheta = Mathf.PI / 2.0f;
+                    float fDeltaThetaInner = Mathf.PI / 2.0f;
+                    while ( fOuterRadius * fDeltaTheta > m_vVoxelSize[ 2 ] )
+                        fDeltaTheta /= 2.0f;
+                    while ( fInnerRadius * fDeltaThetaInner > m_vVoxelSize[ 2 ] )
+                        fDeltaThetaInner /= 2.0f;
+
+                    for ( float fTheta = fDeltaTheta / 2.0f; fTheta < 2 * Mathf.PI; fTheta += fDeltaTheta )
+                    {
+                        float fInnerTheta = fTheta - fDeltaTheta / 2.0f;
+                        float fOuterTheta = fTheta + fDeltaTheta / 2.0f;
+                        float fThetaRadius = fSRadius * Mathf.Sin( fTheta );
+
+                        float fDeltaPhi = Mathf.PI / 2.0f;
+                        while ( fThetaRadius * fDeltaPhi > m_vVoxelSize[ 1 ] )
+                            fDeltaPhi /= 2.0f;
+                    }
+                }
+                */
                 break;
         }
+
     }
 }

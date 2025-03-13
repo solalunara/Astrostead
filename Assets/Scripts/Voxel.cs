@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public enum Geometry
@@ -15,18 +16,18 @@ public class Voxel : MonoBehaviour
     // we assume for all voxels that the transform.position will be in the centre of the object
     Geometry m_iGeometry;
     bool m_bInstantiated = false;
+    Vector3[] m_pvVertices;
+    readonly List<Vector2>[] m_ppvUV = new List<Vector2>[ 8 ];
+    int[] m_piTriangles;
+    Vector3 m_vSideLength;
 
-    public void InstantiateGeometryData( Geometry iGeometry, Vector3 ptGeometryOrigin, Quaternion qGeometryRotation, Vector3 vSideLength )
+    public void InstantiateVoxel( Geometry iGeometry, Vector3 ptGeometryOrigin, Quaternion qGeometryRotation, Vector3 vSideLength )
     {
         if ( m_bInstantiated )
-            throw new InvalidOperationException( "Can only instantiate geometry data once!" );
+            throw new InvalidOperationException( "Can only instantiate voxel once!" );
         m_iGeometry = iGeometry;
-        RecalculateMesh( ptGeometryOrigin, qGeometryRotation, vSideLength );
-        m_bInstantiated = true;
-    }
+        m_vSideLength = vSideLength;
 
-    void RecalculateMesh( Vector3 ptGeometryOrigin, Quaternion qGeometryRotation, Vector3 vSideLength )
-    {
         Mesh m = GetComponent<MeshFilter>().mesh;
 
         Vector3[] pVerts = m.vertices;
@@ -38,7 +39,7 @@ public class Voxel : MonoBehaviour
                 {
                     for ( int j = 0; j < 3; ++j )
                         vDirectionalSideLength[ j ] = pVerts[ i ][ j ] > 0 ? vSideLength[ j ] : -vSideLength[ j ];
-                    vDirectionalSideLength = qGeometryRotation * vDirectionalSideLength;
+                    //vDirectionalSideLength = qGeometryRotation * vDirectionalSideLength;
                     pVerts[ i ] = vDirectionalSideLength / 2;
                 }
                 Vector3 vBoxSize = Vector3.zero;
@@ -92,18 +93,77 @@ public class Voxel : MonoBehaviour
                 throw new NotImplementedException( "Spherical Geometry not yet implemented" );
         }
 
-        m.vertices = pVerts;
+        m_pvVertices = pVerts;
+        for ( int i = 0; i < 8; ++i )
+        {
+            m_ppvUV[ i ] = new();
+            m.GetUVs( i, m_ppvUV[ i ] );
+        }
+        m_piTriangles = m.triangles;
+        m.Clear();
         if ( m_iGeometry != Geometry.CARTESIAN )
         {
-            Destroy( GetComponent<Collider>() );
+            DestroyImmediate( GetComponent<BoxCollider>() );
             gameObject.AddComponent<MeshCollider>().convex = true;
         }
+        m_bInstantiated = true;
+    }
+
+    Vector3 GetFaceNormal( int i )
+    {
+        if ( i % 6 != 0 )
+            throw new ArgumentException( nameof(i) + " = " + i + ": not a valid face index - must be multiple of 6" );
+        Vector3[] vPoints = new Vector3[] {
+            m_pvVertices[ m_piTriangles[ i ] ],
+            m_pvVertices[ m_piTriangles[ i + 1 ] ],
+            m_pvVertices[ m_piTriangles[ i + 2 ] ],
+        };
+        Vector3 A = vPoints[ 1 ] - vPoints[ 0 ];
+        Vector3 B = vPoints[ 2 ] - vPoints[ 0 ];
+
+        Vector3 __ret_val = Vector3.Cross( A, B ).normalized;
+
+        return Vector3.Cross( A, B ).normalized;
+    }
+
+    public void RecalculateVoxel( IEnumerable<Vector3> vNewExposedNormals )
+    {
+        Mesh m = GetComponent<MeshFilter>().mesh;
+        m.Clear();
+
+        List<int> piTriangles = new();
+        foreach ( Vector3 vNorm in vNewExposedNormals )
+            for ( int i = 0; i < m_piTriangles.Length; i += 6 )
+                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.99f )
+                    for ( int u = 0; u < 6; ++u )
+                        piTriangles.Add( m_piTriangles[ i + u ] );
+
+
+        if ( piTriangles.Any() )
+        {
+            m.vertices = m_pvVertices;
+            for ( int i = 0; i < 8; ++i )
+                m.SetUVs( i, m_ppvUV[ i ] );
+            m_piTriangles = piTriangles.ToArray();
+            m.triangles = m_piTriangles;
+        }
+        else
+            m.Clear();
 
         m.RecalculateBounds();
         m.RecalculateNormals();
         m.RecalculateTangents();
         m.RecalculateUVDistributionMetrics();
 
+        // modify colliders based on what triangles are rendering
+        if ( piTriangles.Any() )
+        {
+            GetComponent<Collider>().enabled = true;
+            if ( TryGetComponent( out MeshCollider mc ) )
+                mc.sharedMesh = m;
+        }
+        else
+            GetComponent<Collider>().enabled = false;
     }
 
     void OnDisable()

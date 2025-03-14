@@ -146,34 +146,60 @@ public class Voxelify : MonoBehaviour
                 break;
 
             case Geometry.SPHERICAL:
-                /*
                 SphereCollider pSphereCollider = GetComponent<SphereCollider>();
                 float fSRadiusMax = pSphereCollider.radius * transform.lossyScale[ 0 ];
                 float fSDeltaRadius = m_vVoxelSize[ 0 ];
-                for ( float fSRadius = fSDeltaRadius / 2.0f; fSRadius < fSRadiusMax; fSRadius += fSDeltaRadius )
+                for ( u = 0; ( u + 0.5f ) * fSDeltaRadius < fSRadiusMax; ++u )
                 {
+                    float fSRadius = u * fSDeltaRadius + fSDeltaRadius / 2.0f;
                     float fInnerRadius = fSRadius - m_vVoxelSize[ 0 ] / 2.0f;
                     float fOuterRadius = fSRadius + m_vVoxelSize[ 0 ] / 2.0f;
 
                     float fDeltaTheta = Mathf.PI / 2.0f;
                     float fDeltaThetaInner = Mathf.PI / 2.0f;
-                    while ( fOuterRadius * fDeltaTheta > m_vVoxelSize[ 2 ] )
+                    while ( fOuterRadius * fDeltaTheta > m_vVoxelSize[ 1 ] )
                         fDeltaTheta /= 2.0f;
-                    while ( fInnerRadius * fDeltaThetaInner > m_vVoxelSize[ 2 ] )
+                    while ( fInnerRadius * fDeltaThetaInner > m_vVoxelSize[ 1 ] )
                         fDeltaThetaInner /= 2.0f;
 
-                    for ( float fTheta = fDeltaTheta / 2.0f; fTheta < 2 * Mathf.PI; fTheta += fDeltaTheta )
+                    float fDeltaPhi = Mathf.PI / 2.0f;
+                    while ( fOuterRadius * fDeltaPhi > m_vVoxelSize[ 2 ] )
+                        fDeltaPhi /= 2.0f;
+
+                    for ( v = 0; ( v + 0.5f ) * fDeltaTheta < Mathf.PI; ++v )
                     {
-                        float fInnerTheta = fTheta - fDeltaTheta / 2.0f;
-                        float fOuterTheta = fTheta + fDeltaTheta / 2.0f;
+                        float fTheta = v * fDeltaTheta + fDeltaTheta / 2.0f;
+                        float fUpperTheta = fTheta - fDeltaTheta / 2.0f;
+                        float fLowerTheta = fTheta + fDeltaTheta / 2.0f;
                         float fThetaRadius = fSRadius * Mathf.Sin( fTheta );
 
-                        float fDeltaPhi = Mathf.PI / 2.0f;
-                        while ( fThetaRadius * fDeltaPhi > m_vVoxelSize[ 1 ] )
-                            fDeltaPhi /= 2.0f;
+                        for ( w = 0; ( w + 0.5f ) * fDeltaPhi < 2 * Mathf.PI; ++w )
+                        {
+                            float fPhi = w * fDeltaPhi + fDeltaPhi / 2.0f;
+
+                            Vector3Int viVoxelCoords = new( u, v, w );
+                            Vector3 vVoxelCentre = new( fSRadius * Mathf.Sin( fTheta ) * Mathf.Sin( fPhi ), 
+                                                        fSRadius * Mathf.Cos( fTheta ), 
+                                                        fSRadius * Mathf.Sin( fTheta ) * Mathf.Cos( fPhi ) );
+                            for ( int i = 0; i < 3; ++i )
+                                vVoxelCentre[ i ] /= transform.lossyScale[ i ];
+                            GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
+                            pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
+                            pVoxelObj.transform.parent = transform;
+                            pVoxelObj.transform.localPosition = vVoxelCentre;
+                            pVoxelObj.transform.localRotation = Quaternion.identity;
+                            m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
+                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+
+                            // if we're an edge, tell the voxel that
+                            List<Vector3> pNorms = new();
+                            if ( fSRadius + fSDeltaRadius >= fSRadiusMax )
+                                pNorms.Add( vVoxelCentre.normalized );
+
+                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
+                        }
                     }
                 }
-                */
                 break;
         }
 

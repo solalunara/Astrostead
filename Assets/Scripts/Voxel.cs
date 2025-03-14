@@ -49,6 +49,7 @@ public class Voxel : MonoBehaviour
                 break;
 
             case Geometry.CYLINDRICAL:
+            {
                 Vector3 ptLocalOrigin = Quaternion.Inverse( qGeometryRotation ) * ( transform.position - ptGeometryOrigin );
                 Vector3 ptLocalOriginProjected = Vector3.ProjectOnPlane( ptLocalOrigin, Vector3.up );
                 float fRadius = ptLocalOriginProjected.magnitude;
@@ -88,9 +89,60 @@ public class Voxel : MonoBehaviour
                 }
 
                 break;
+            }
 
             case Geometry.SPHERICAL:
-                throw new NotImplementedException( "Spherical Geometry not yet implemented" );
+            {
+                Vector3 ptLocalOrigin = Quaternion.Inverse( qGeometryRotation ) * ( transform.position - ptGeometryOrigin );
+                float fRadius = ptLocalOrigin.magnitude;
+                float fInnerRadius = fRadius - vSideLength[ 0 ] / 2.0f;
+                float fOuterRadius = fRadius + vSideLength[ 0 ] / 2.0f;
+
+                float fPhi = Vector3.SignedAngle( new Vector3( 0, 0, 1 ), new Vector3( ptLocalOrigin.x, 0, ptLocalOrigin.z ), Vector3.up ) * Mathf.Deg2Rad;
+                float fTheta = Vector3.Angle( new Vector3( 0, 1, 0 ), ptLocalOrigin ) * Mathf.Deg2Rad;
+
+                // fOuterRadius * delta theta <= vSideLength[ 1 ]
+                // delta theta should start at 90 deg and half until it gets to the neccesary value
+                float fDeltaTheta = Mathf.PI / 2.0f;
+                float fDeltaThetaInner = Mathf.PI / 2.0f;
+                while ( fOuterRadius * fDeltaTheta > vSideLength[ 1 ] )
+                    fDeltaTheta /= 2.0f;
+                while ( fInnerRadius * fDeltaThetaInner > vSideLength[ 1 ] )
+                    fDeltaThetaInner /= 2.0f;
+
+                float fDeltaPhi = Mathf.PI / 2.0f;
+                float fDeltaPhiInner = Mathf.PI / 2.0f;
+                while ( fOuterRadius * fDeltaPhi > vSideLength[ 2 ] )
+                    fDeltaPhi /= 2.0f;
+                while ( fInnerRadius * fDeltaPhiInner > vSideLength[ 2 ] )
+                    fDeltaPhiInner /= 2.0f;
+
+
+                // for calculating upper and lower theta, we use the fDeltaTheta using the outer radius
+                // the only thing fDeltaThetaInner being different will change is how far the bisector has to extend
+                // to get to the layer before it
+                // see https://i.imgur.com/ZrEV23Y.png
+                float fMinTheta = Mathf.Floor( fTheta / fDeltaTheta ) * fDeltaTheta;
+                float fMaxTheta = Mathf.Ceil( fTheta / fDeltaTheta ) * fDeltaTheta;
+
+                float fMinPhi = Mathf.Floor( fPhi / fDeltaPhi ) * fDeltaPhi;
+                float fMaxPhi = Mathf.Ceil( fPhi / fDeltaPhi ) * fDeltaPhi;
+
+                for ( int i = 0; i < pVerts.Length; ++i )
+                {
+                    // TODO: make r decrease to appropriate value for innerradius when fDeltaThetaInner != fDeltaThetaOuter
+                    float r = pVerts[ i ][ 0 ] > 0 ? fOuterRadius : fInnerRadius;
+                    float t = pVerts[ i ][ 1 ] > 0 ? fMaxTheta : fMinTheta;
+                    float p = pVerts[ i ][ 2 ] > 0 ? fMaxPhi : fMinPhi;
+
+
+                    pVerts[ i ][ 0 ] = r * Mathf.Sin( t ) * Mathf.Sin( p ) - ptLocalOrigin[ 0 ];
+                    pVerts[ i ][ 1 ] = r * Mathf.Cos( t ) - ptLocalOrigin[ 1 ];
+                    pVerts[ i ][ 2 ] = r * Mathf.Sin( t ) * Mathf.Cos( p ) - ptLocalOrigin[ 2 ];
+                    //pVerts[ i ] = qGeometryRotation * pVerts[ i ];
+                }
+                break;
+            }
         }
 
         m_pvVertices = pVerts;
@@ -117,13 +169,20 @@ public class Voxel : MonoBehaviour
             m_pvVertices[ m_piTriangles[ i ] ],
             m_pvVertices[ m_piTriangles[ i + 1 ] ],
             m_pvVertices[ m_piTriangles[ i + 2 ] ],
+            m_pvVertices[ m_piTriangles[ i + 3 ] ],
+            m_pvVertices[ m_piTriangles[ i + 4 ] ],
+            m_pvVertices[ m_piTriangles[ i + 5 ] ],
         };
         Vector3 A = vPoints[ 1 ] - vPoints[ 0 ];
         Vector3 B = vPoints[ 2 ] - vPoints[ 0 ];
+        Vector3 C = vPoints[ 5 ] - vPoints[ 3 ];
+        Vector3 D = vPoints[ 4 ] - vPoints[ 3 ];
 
-        Vector3 __ret_val = Vector3.Cross( A, B ).normalized;
+        Vector3 vTriangleNorm1 = Vector3.Cross( A, B ).normalized;
+        Vector3 vTriangleNorm2 = Vector3.Cross( C, D ).normalized;
 
-        return Vector3.Cross( A, B ).normalized;
+        // only return zero if both triangle norms are zero
+        return vTriangleNorm1 == Vector3.zero ? -vTriangleNorm2 : vTriangleNorm1;
     }
 
     public void RecalculateVoxel( IEnumerable<Vector3> vNewExposedNormals )
@@ -134,7 +193,7 @@ public class Voxel : MonoBehaviour
         List<int> piTriangles = new();
         foreach ( Vector3 vNorm in vNewExposedNormals )
             for ( int i = 0; i < m_piTriangles.Length; i += 6 )
-                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.99f )
+                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.97f )
                     for ( int u = 0; u < 6; ++u )
                         piTriangles.Add( m_piTriangles[ i + u ] );
 

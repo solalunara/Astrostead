@@ -84,19 +84,31 @@ public class Voxel : MonoBehaviour
         m_piTriangles = GetCubeTriangles();
     }
 
+    void OnEnable()
+    {
+        RefreshTriangles();
+    }
+
     Mesh GetOrAddMesh()
     {
         if ( !TryGetComponent( out MeshFilter m ) )
             m = gameObject.AddComponent<MeshFilter>();
-        return m.mesh;
+
+        if ( m.sharedMesh )
+            return m.sharedMesh;
+        else
+            return m.mesh;
     }
 
     void RemoveMesh()
     {
         if ( TryGetComponent( out MeshFilter m ) )
         {
-            m.mesh.Clear();
-            Destroy( m.mesh );
+            if ( m.sharedMesh )
+            {
+                m.sharedMesh.Clear();
+                DestroyImmediate( m.sharedMesh );
+            }
         }
     }
 
@@ -225,8 +237,8 @@ public class Voxel : MonoBehaviour
             m.RecalculateBounds();
             m.RecalculateNormals();
             m.RecalculateTangents();
+            UpdateCollider();
         }
-        UpdateCollider();
     }
 
     void RefreshUVs()
@@ -350,7 +362,8 @@ public class Voxel : MonoBehaviour
                     mc = gameObject.AddComponent<MeshCollider>();
                     mc.convex = true;
                 }
-                mc.sharedMesh = GetComponent<MeshFilter>().mesh;
+                mc.enabled = true;
+                mc.sharedMesh = GetComponent<MeshFilter>().sharedMesh;
             }
             else if ( TryGetComponent( out MeshCollider mc ) )
                 Destroy( mc );
@@ -366,6 +379,7 @@ public class Voxel : MonoBehaviour
                 for ( int i = 0; i < 3; ++i )
                     vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
                 bc.size = vBoxSize;
+                bc.enabled = true;
             }
             else if ( TryGetComponent( out BoxCollider bc ) )
                 Destroy( bc );
@@ -409,5 +423,7 @@ public class Voxel : MonoBehaviour
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.
         //    Resources.UnloadUnusedAssets also destroys the mesh but it is usually only called when loading a new level.
         RemoveMesh();
+        if ( TryGetComponent( out Collider c ) )
+            c.enabled = false;
     }
 }

@@ -206,5 +206,6 @@ public class Voxelify : VoxelGroup
         }
 
         CombineMeshes();
+        DeCombine();
     }
 }

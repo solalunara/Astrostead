@@ -70,6 +70,20 @@ public abstract class VoxelGroup : MonoBehaviour
             pVoxel.gameObject.SetActive( false );
         }
     }
+
+    public void DeCombine()
+    {
+        for ( int u = 0; u < m_pVoxels.Count; ++u )
+        for ( int v = 0; v < m_pVoxels[ u ].Count; ++v )
+        for ( int w = 0; w < m_pVoxels[ u ][ v ].Count; ++w )
+        {
+            Voxel pVoxel = m_pVoxels[ u ][ v ][ w ];
+            pVoxel.gameObject.SetActive( true );
+        }
+        RemoveMesh();
+        GetComponent<MeshRenderer>().enabled = false;
+    }
+
     private Geometry m_iGeometry = Geometry.NONE;
 
     // Cartesian:    u - x, v - y, w - z
@@ -88,8 +102,11 @@ public abstract class VoxelGroup : MonoBehaviour
     {
         if ( TryGetComponent( out MeshFilter m ) )
         {
-            m.mesh.Clear();
-            Destroy( m.mesh );
+            if ( m.sharedMesh )
+            {
+                m.sharedMesh.Clear();
+                Destroy( m.sharedMesh );
+            }
         }
     }
 

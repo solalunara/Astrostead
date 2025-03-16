@@ -7,42 +7,40 @@ using System.Threading.Tasks;
 using Unity.Jobs;
 using UnityEngine;
 
-public class Voxelify : MonoBehaviour
+public class Voxelify : VoxelGroup
 {
-    public Vector3 m_vVoxelSize;
-    public Material m_pVoxelMaterial;
-    Geometry m_iGeometry;
-
+    public TextureAtlas VoxelAtlas
+    {
+        get
+        {
+            if ( m_pVoxelAtlas == null )
+                m_pVoxelAtlas = TextureAtlas.GetAtlas( m_iAtlas );
+            return m_pVoxelAtlas;
+        }
+    } 
+    private TextureAtlas m_pVoxelAtlas = null;
+    [SerializeField] private AtlasType m_iAtlas;
     // Cartesian:    u - x, v - y, w - z
     // Cylindrical:  u - r, v - y, w - theta
-    // Spherical:    u - r, v - phi, w - theta 
-    readonly Dictionary<Vector3Int, Voxel> m_pVoxels = new();
-
+    // Spherical:    u - r, v - theta, w - phi 
     void OnEnable()
     {
         m_pVoxels.Clear();
 
-        foreach ( var pCollider in GetComponents<Collider>() )
-        {
-            if ( !pCollider.isTrigger )
-            {
-                pCollider.enabled = false;
-                if ( TryGetComponent<BoxCollider>( out _ ) )
-                    m_iGeometry = Geometry.CARTESIAN;
-                else if ( TryGetComponent<CapsuleCollider>( out _ ) )
-                    m_iGeometry = Geometry.CYLINDRICAL;
-                else if ( TryGetComponent<SphereCollider>( out _ ) )
-                    m_iGeometry = Geometry.SPHERICAL;
-                else throw new NotImplementedException( "Please have one of a BoxCollider, CapsuleCollider, or SphereCollider on a Voxelify Object" );
-            }
-        }
-
         foreach ( var pRenderer in GetComponents<Renderer>() )
             pRenderer.enabled = false;
 
+        GeometryData gGeoData = new()
+        {
+            m_iGeometry = GetGeometry(),
+            m_ptGeometryOrigin = transform.position,
+            m_qGeometryRotation = transform.rotation,
+            m_vSideLength = m_vVoxelSize
+        };
+
         int u, v, w;
         u = v = w = 0;
-        switch ( m_iGeometry )
+        switch ( GetGeometry() )
         {
             case Geometry.CARTESIAN:
                 BoxCollider pBoxCollider = GetComponent<BoxCollider>();
@@ -63,12 +61,12 @@ public class Voxelify : MonoBehaviour
                             for ( int i = 0; i < 3; ++i )
                                 vVoxelCentre[ i ] /= transform.lossyScale[ i ];
                             GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
+                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
                             pVoxelObj.transform.parent = transform;
                             pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
                             m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+                            m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
 
                             // if we're an edge, tell the voxel that
                             List<Vector3> pNorms = new();
@@ -85,7 +83,8 @@ public class Voxelify : MonoBehaviour
                             if ( vVoxelCentre.z * transform.lossyScale.z + m_vVoxelSize.z >= vSize.z / 2.0f )
                                 pNorms.Add(  Vector3.forward );
 
-                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
+                            m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
+                            m_pVoxels[ viVoxelCoords ].Block = pNorms.Contains( Vector3.up ) ? BlockType.GRASS : BlockType.DIRT;
                         }
                     }
                 }
@@ -122,12 +121,12 @@ public class Voxelify : MonoBehaviour
                             for ( int i = 0; i < 3; ++i )
                                 vVoxelCentre[ i ] /= transform.lossyScale[ i ];
                             GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
+                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
                             pVoxelObj.transform.parent = transform;
                             pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
                             m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+                            m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
 
                             // if we're an edge, tell the voxel that
                             List<Vector3> pNorms = new();
@@ -138,7 +137,8 @@ public class Voxelify : MonoBehaviour
                             if ( fY + fDeltaHeight >= fHeight / 2.0f )
                                 pNorms.Add(  Vector3.up );
 
-                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
+                            m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
+                            m_pVoxels[ viVoxelCoords ].Block = fRadius + fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
                         }
                     }
                 }
@@ -184,19 +184,20 @@ public class Voxelify : MonoBehaviour
                             for ( int i = 0; i < 3; ++i )
                                 vVoxelCentre[ i ] /= transform.lossyScale[ i ];
                             GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = m_pVoxelMaterial;
+                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
                             pVoxelObj.transform.parent = transform;
                             pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
                             m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ viVoxelCoords ].InstantiateVoxel( m_iGeometry, transform.position, transform.rotation, m_vVoxelSize );
+                            m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
 
                             // if we're an edge, tell the voxel that
                             List<Vector3> pNorms = new();
                             if ( fSRadius + fSDeltaRadius >= fSRadiusMax )
                                 pNorms.Add( vVoxelCentre.normalized );
 
-                            m_pVoxels[ viVoxelCoords ].RecalculateVoxel( pNorms );
+                            m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
+                            m_pVoxels[ viVoxelCoords ].Block = pNorms.Any() ? BlockType.GRASS : BlockType.DIRT;
                         }
                     }
                 }

@@ -327,7 +327,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_vVoxelSize: {x: 1, y: 1, z: 1}
-  m_pVoxelMaterial: {fileID: 2100000, guid: 3fb79a3a56b15da519c7ce97ccae47f4, type: 2}
+  m_iAtlas: 0
 --- !u!114 &308540321
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1160,8 +1160,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 69def9df3511cda00ba1956aa9dd58eb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_vVoxelSize: {x: 3, y: 6, z: 6}
-  m_pVoxelMaterial: {fileID: 2100000, guid: 3fb79a3a56b15da519c7ce97ccae47f4, type: 2}
+  m_vVoxelSize: {x: 3, y: 3, z: 3}
+  m_iAtlas: 0
 --- !u!114 &1215709045
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1498,7 +1498,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_vVoxelSize: {x: 3, y: 3, z: 3}
-  m_pVoxelMaterial: {fileID: 2100000, guid: 3fb79a3a56b15da519c7ce97ccae47f4, type: 2}
+  m_iAtlas: 0
 --- !u!114 &1491154917
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1558,6 +1558,54 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9c1cc44b3c98fbd1ca8c7998a4b84943, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &1953785177
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1953785179}
+  - component: {fileID: 1953785178}
+  m_Layer: 0
+  m_Name: StandardAtlas
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1953785178
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1953785177}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c0ae8e80230e678eaadf3a0fa49e8dc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_pVoxelMaterial: {fileID: 2100000, guid: 7cb1951d6712c35f1a2436629a97553e, type: 2}
+  m_iType: 0
+  m_iTexturesCountX: 16
+  m_iTexturesCountY: 16
+--- !u!4 &1953785179
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1953785177}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 8.675562, y: -7.396084, z: 1.5781838}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2029944397
 GameObject:
   m_ObjectHideFlags: 0
@@ -1783,3 +1831,4 @@ SceneRoots:
   - {fileID: 308540327}
   - {fileID: 1491154913}
   - {fileID: 1215709043}
+  - {fileID: 1953785179}

@@ -2,36 +2,95 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.VisualScripting;
 using UnityEngine;
+using static Statics;
 
 public enum Geometry
 {
+    NONE,
     CARTESIAN,
     CYLINDRICAL,
     SPHERICAL,
 }
 
+public enum BlockType
+{
+    NONE,
+    GRASS,
+    DIRT
+}
+
+public struct GeometryData
+{
+    public Geometry m_iGeometry;
+    public Vector3 m_ptGeometryOrigin;
+    public Quaternion m_qGeometryRotation;
+    public Vector3 m_vSideLength;
+}
+
 public class Voxel : MonoBehaviour
 {
     // we assume for all voxels that the transform.position will be in the centre of the object
-    Geometry m_iGeometry;
-    bool m_bInstantiated = false;
-    Vector3[] m_pvVertices;
-    readonly List<Vector2>[] m_ppvUV = new List<Vector2>[ 8 ];
-    int[] m_piTriangles;
-    Vector3 m_vSideLength;
-
-    public void InstantiateVoxel( Geometry iGeometry, Vector3 ptGeometryOrigin, Quaternion qGeometryRotation, Vector3 vSideLength )
+    public GeometryData GeoData
     {
-        if ( m_bInstantiated )
-            throw new InvalidOperationException( "Can only instantiate voxel once!" );
-        m_iGeometry = iGeometry;
-        m_vSideLength = vSideLength;
+        get => m_gGeometry;
+        set
+        {
+            m_gGeometry = value;
+            RefreshVertices();
+        }
+    }
+    public BlockType Block
+    {
+        get => m_iType;
+        set
+        {
+            m_iType = value;
+            RefreshUVs();
+        }
+    }
+    public List<Vector3> ExposedNormals
+    {
+        get
+        {
+            Vector3[] ret = new Vector3[ m_vNewExposedNormals.Count() ];
+            m_vNewExposedNormals.CopyTo( ret );
+            return ret.ToList();
+        }
+        set
+        {
+            m_vNewExposedNormals.Clear();
+            m_vNewExposedNormals.AddRange( value );
+            RefreshTriangles();
+        }
+    }
 
-        Mesh m = GetComponent<MeshFilter>().mesh;
+    GeometryData m_gGeometry;
+    Vector3[] m_pvVertices;
+    readonly Vector2[][] m_ppvUV = new Vector2[ 8 ][];
+    int[] m_piTriangles;
+    BlockType m_iType;
+    readonly List<Vector3> m_vNewExposedNormals = new();
 
-        Vector3[] pVerts = m.vertices;
-        switch ( m_iGeometry )
+    void OnEnable()
+    {
+        m_pvVertices = GetCubeVertices();
+        for ( int i = 0; i < 8; ++i )
+            m_ppvUV[ i ] = GetCubeUV( i );
+        m_piTriangles = GetCubeTriangles();
+
+        GetComponent<MeshFilter>().mesh.Clear();
+        UpdateCollider();
+    }
+
+    void RefreshVertices()
+    {
+        Vector3[] pVerts = GetCubeVertices();
+        Vector3 vSideLength = m_gGeometry.m_vSideLength;
+        Vector3 ptGeometryOrigin = m_gGeometry.m_ptGeometryOrigin;
+        Quaternion qGeometryRotation = m_gGeometry.m_qGeometryRotation;
+        switch ( m_gGeometry.m_iGeometry )
         {
             case Geometry.CARTESIAN:
                 Vector3 vDirectionalSideLength = Vector3.zero;
@@ -42,10 +101,6 @@ public class Voxel : MonoBehaviour
                     //vDirectionalSideLength = qGeometryRotation * vDirectionalSideLength;
                     pVerts[ i ] = vDirectionalSideLength / 2;
                 }
-                Vector3 vBoxSize = Vector3.zero;
-                for ( int i = 0; i < 3; ++i )
-                    vBoxSize[ i ] = vSideLength[ i ] / transform.lossyScale[ i ];
-                GetComponent<BoxCollider>().size = vBoxSize;
                 break;
 
             case Geometry.CYLINDRICAL:
@@ -146,19 +201,166 @@ public class Voxel : MonoBehaviour
         }
 
         m_pvVertices = pVerts;
+
+        Mesh m = GetComponent<MeshFilter>().mesh;
+        if ( m.vertices.Any() )
+            m.vertices = m_pvVertices;
+
+        RefreshMesh();
+    }
+
+    void RefreshUVs()
+    {
+        Vector3 vUpVector = GetUpVector();
+
+        Vector2 vTopTextureMaxs;
+        Vector2 vTopTextureMins;
+        Vector2 vSideTextureMaxs;
+        Vector2 vSideTextureMins;
+        Vector2 vBottomTextureMaxs;
+        Vector2 vBottomTextureMins;
+        switch ( m_iType )
+        {
+            case BlockType.GRASS:
+            {
+                (vTopTextureMins, vTopTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.GRASS );
+                (vSideTextureMins, vSideTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
+                (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
+                break;
+            }
+            case BlockType.DIRT:
+            {
+                (vTopTextureMins, vTopTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
+                (vSideTextureMins, vSideTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
+                (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
+                break;
+            }
+
+            default:
+            {
+                (vTopTextureMins, vTopTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.NONE );
+                (vSideTextureMins, vSideTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.NONE );
+                (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.NONE );
+                break;
+            }
+        }
+
+        Mesh m = GetComponent<MeshFilter>().mesh;
         for ( int i = 0; i < 8; ++i )
         {
-            m_ppvUV[ i ] = new();
-            m.GetUVs( i, m_ppvUV[ i ] );
+            Vector2[] ppvUV = GetCubeUV( i );
+
+            if ( !m_ppvUV[ i ].Any() )
+                continue;
+
+            for ( int j = 0; j < m_piTriangles.Length; j += 6 )
+            {
+                for ( int n = 0; n < 6; ++n )
+                {
+                    for ( int k = 0; k < 2; ++k )
+                    {
+                        if ( Vector3.Dot( GetFaceNormal( j ), vUpVector ) > 0.97f )
+                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vTopTextureMaxs[ k ] : vTopTextureMins[ k ];
+                        else if ( Vector3.Dot( GetFaceNormal( j ), vUpVector ) < -0.97f )
+                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vBottomTextureMaxs[ k ] : vBottomTextureMins[ k ];
+                        else
+                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vSideTextureMaxs[ k ] : vSideTextureMins[ k ];
+                    }
+                }
+            }
+
+            m_ppvUV[ i ] = ppvUV;
+            if ( m.vertices.Any() )
+                m.SetUVs( i, m_ppvUV[ i ] );
         }
-        m_piTriangles = m.triangles;
-        m.Clear();
-        if ( m_iGeometry != Geometry.CARTESIAN )
+        RefreshMesh();
+    }
+
+    void RefreshTriangles()
+    {
+        Mesh m = GetComponent<MeshFilter>().mesh;
+
+        List<int> piTriangles = new();
+        foreach ( Vector3 vNorm in m_vNewExposedNormals )
+            for ( int i = 0; i < m_piTriangles.Length; i += 6 )
+                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.97f )
+                    for ( int u = 0; u < 6; ++u )
+                        piTriangles.Add( m_piTriangles[ i + u ] );
+
+
+        if ( piTriangles.Any() )
         {
-            DestroyImmediate( GetComponent<BoxCollider>() );
-            gameObject.AddComponent<MeshCollider>().convex = true;
+            m.vertices = m_pvVertices;
+            for ( int i = 0; i < 8; ++i )
+                m.SetUVs( i, m_ppvUV[ i ] );
+            m_piTriangles = piTriangles.ToArray();
+            m.triangles = m_piTriangles;
         }
-        m_bInstantiated = true;
+        else
+            m.Clear();
+
+        RefreshMesh();
+    }
+
+    void RefreshMesh()
+    {
+        Mesh m = GetComponent<MeshFilter>().mesh;
+
+        m.RecalculateBounds();
+        m.RecalculateNormals();
+        m.RecalculateTangents();
+        m.RecalculateUVDistributionMetrics();
+
+        UpdateCollider();
+    }
+
+    Vector3 GetUpVector() 
+    {
+        return m_gGeometry.m_iGeometry switch
+        {
+            Geometry.CARTESIAN => Vector3.up,
+            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane(Quaternion.Inverse(m_gGeometry.m_qGeometryRotation) * (transform.position - m_gGeometry.m_ptGeometryOrigin), Vector3.up),
+            Geometry.SPHERICAL => Quaternion.Inverse(m_gGeometry.m_qGeometryRotation) * (transform.position - m_gGeometry.m_ptGeometryOrigin),
+            _ => Vector3.up,
+        };
+    }
+
+    void UpdateCollider()
+    {
+        if ( TryGetComponent( out BoxCollider bc ) )
+        {
+            if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
+            {
+                DestroyImmediate( bc );
+                gameObject.AddComponent<MeshCollider>().convex = true;
+            }
+            else
+            {
+                Vector3 vBoxSize = Vector3.zero;
+                for ( int i = 0; i < 3; ++i )
+                    vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
+                bc.size = vBoxSize;
+            }
+        }
+        else if ( TryGetComponent( out MeshCollider mc ) )
+        {
+            if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
+                mc.sharedMesh = GetComponent<MeshFilter>().mesh;
+            else
+            {
+                DestroyImmediate( mc );
+                Vector3 vBoxSize = Vector3.zero;
+                for ( int i = 0; i < 3; ++i )
+                    vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
+                gameObject.AddComponent<BoxCollider>().size = vBoxSize;
+            }
+        }
+        else throw new InvalidOperationException( "Invalid state - voxel must have boxcollider or meshcollider" );
+
+        if ( m_vNewExposedNormals.Any() )
+            GetComponent<Collider>().enabled = true;
+        else
+            GetComponent<Collider>().enabled = false;
     }
 
     Vector3 GetFaceNormal( int i )
@@ -185,49 +387,9 @@ public class Voxel : MonoBehaviour
         return vTriangleNorm1 == Vector3.zero ? -vTriangleNorm2 : vTriangleNorm1;
     }
 
-    public void RecalculateVoxel( IEnumerable<Vector3> vNewExposedNormals )
-    {
-        Mesh m = GetComponent<MeshFilter>().mesh;
-        m.Clear();
-
-        List<int> piTriangles = new();
-        foreach ( Vector3 vNorm in vNewExposedNormals )
-            for ( int i = 0; i < m_piTriangles.Length; i += 6 )
-                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.97f )
-                    for ( int u = 0; u < 6; ++u )
-                        piTriangles.Add( m_piTriangles[ i + u ] );
-
-
-        if ( piTriangles.Any() )
-        {
-            m.vertices = m_pvVertices;
-            for ( int i = 0; i < 8; ++i )
-                m.SetUVs( i, m_ppvUV[ i ] );
-            m_piTriangles = piTriangles.ToArray();
-            m.triangles = m_piTriangles;
-        }
-        else
-            m.Clear();
-
-        m.RecalculateBounds();
-        m.RecalculateNormals();
-        m.RecalculateTangents();
-        m.RecalculateUVDistributionMetrics();
-
-        // modify colliders based on what triangles are rendering
-        if ( piTriangles.Any() )
-        {
-            GetComponent<Collider>().enabled = true;
-            if ( TryGetComponent( out MeshCollider mc ) )
-                mc.sharedMesh = m;
-        }
-        else
-            GetComponent<Collider>().enabled = false;
-    }
 
     void OnDisable()
     {
-        m_bInstantiated = false;
         // Unity Docs:
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.
         //    Resources.UnloadUnusedAssets also destroys the mesh but it is usually only called when loading a new level.

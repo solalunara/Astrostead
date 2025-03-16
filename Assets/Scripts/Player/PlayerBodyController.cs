@@ -90,10 +90,10 @@ public class PlayerBodyController : MonoBehaviour
             Component rSecond = Header.OtherBody;
 
             PlayerBodyController pBody = null;
-            if ( rFirst  &&  rFirst.gameObject.GetComponentInChildren<PlayerBodyController>() )
-                pBody =  rFirst.gameObject.GetComponentInChildren<PlayerBodyController>();
-            if ( rSecond && rSecond.gameObject.GetComponentInChildren<PlayerBodyController>() )
-                pBody = rSecond.gameObject.GetComponentInChildren<PlayerBodyController>();
+            if ( rFirst  &&  rFirst.GetComponent<PlayerBodyController>() )
+                pBody =  rFirst.GetComponent<PlayerBodyController>();
+            if ( rSecond && rSecond.GetComponent<PlayerBodyController>() )
+                pBody = rSecond.GetComponent<PlayerBodyController>();
 
             if ( !pBody )
                 continue;
@@ -194,8 +194,8 @@ public class PlayerBodyController : MonoBehaviour
         if ( !bCrouch )
         {
             //have to manually test for floor as we could be uncrouching in the air but with not enough space
-            IEnumerable<Collider> pHitColliders = m_pCrouchedObj.GetComponent<PlayerCrouchedPart>().UncrouchCollisionObjectsLower;
-            IEnumerable<Collider> pHitCollidersUpper = m_pCrouchedObj.GetComponent<PlayerCrouchedPart>().UncrouchCollisionObjectsUpper;
+            List<Collider> pHitColliders = m_pCrouchedObj.GetComponent<PlayerCrouchedPart>().UncrouchCollisionObjectsLower;
+            List<Collider> pHitCollidersUpper = m_pCrouchedObj.GetComponent<PlayerCrouchedPart>().UncrouchCollisionObjectsUpper;
             Vector3 vDelta = Vector3.zero;
 
             UncrouchedTriggerObj[] pUncroucheds = GetComponentsInChildren<UncrouchedTriggerObj>();
@@ -206,8 +206,14 @@ public class PlayerBodyController : MonoBehaviour
             //prevent uncrouch from ground if we can't go up
             if ( m_pGroundEntity )
             {
-                foreach ( var pHitColliderUpper in pHitCollidersUpper )
+                for ( int i = pHitCollidersUpper.Count(); --i >= 0; )
                 {
+                    Collider pHitColliderUpper = pHitCollidersUpper.ElementAt( i );
+                    if ( !pHitColliderUpper )
+                    {
+                        pHitCollidersUpper.RemoveAt( i );
+                        continue;
+                    }
                     bool bhit = Physics.ComputePenetration( pHitColliderUpper, pHitColliderUpper.transform.position, pHitColliderUpper.transform.rotation,
                                                             pUncrouchedUpper, pUncrouchedUpper.transform.position, pUncrouchedUpper.transform.rotation,
                                                             out Vector3 vNorm, out float fDist );
@@ -219,8 +225,14 @@ public class PlayerBodyController : MonoBehaviour
             }
 
             Collider pCrouchedCollider = m_pCrouchedObj.GetComponent<Collider>();
-            foreach ( var pObject in m_pPlayerSphere.PlayerUniverse )
+            for ( int i = m_pPlayerSphere.PlayerUniverse.Count(); --i >= 0; )
             {
+                Collider pObject = m_pPlayerSphere.PlayerUniverse.ElementAt( i );
+                if ( !pObject )
+                {
+                    m_pPlayerSphere.PlayerUniverse.RemoveAt( i );
+                    continue;
+                }
                 bool bhit = Physics.ComputePenetration( pObject, pObject.transform.position, pObject.transform.rotation,
                                                         pCrouchedCollider, pCrouchedCollider.transform.position, pCrouchedCollider.transform.rotation,
                                                         out Vector3 vNorm, out float fDist );
@@ -238,8 +250,14 @@ public class PlayerBodyController : MonoBehaviour
             if ( bHit && !m_pGroundEntity )
             {
                 Vector3 ptUncrouchedColliderOrigin = m_pUncrouchedObj.transform.position;
-                foreach ( var pHitCollider in pHitColliders )
+                for ( int i = pHitColliders.Count(); --i >= 0; )
                 {
+                    Collider pHitCollider = pHitColliders.ElementAt( i );
+                    if ( !pHitCollider )
+                    {
+                        pHitColliders.RemoveAt( i );
+                        continue;
+                    }
                     bool bhit = Physics.ComputePenetration( pHitCollider, pHitCollider.transform.position, pHitCollider.transform.rotation,
                                                             pUncrouchedLower, ptUncrouchedColliderOrigin, pUncrouchedLower.transform.rotation,
                                                             out Vector3 vNorm, out float fDist );

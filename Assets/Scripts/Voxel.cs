@@ -60,6 +60,9 @@ public class Voxel : MonoBehaviour
         }
         set
         {
+            if ( m_vNewExposedNormals.SequenceEqual( value ) )
+                return;
+
             m_vNewExposedNormals.Clear();
             m_vNewExposedNormals.AddRange( value );
             RefreshTriangles();
@@ -73,15 +76,30 @@ public class Voxel : MonoBehaviour
     BlockType m_iType;
     readonly List<Vector3> m_vNewExposedNormals = new();
 
-    void OnEnable()
+    void Awake()
     {
         m_pvVertices = GetCubeVertices();
         for ( int i = 0; i < 8; ++i )
             m_ppvUV[ i ] = GetCubeUV( i );
         m_piTriangles = GetCubeTriangles();
 
-        GetComponent<MeshFilter>().mesh.Clear();
-        UpdateCollider();
+        gameObject.AddComponent<MeshFilter>();
+    }
+
+    Mesh GetOrAddMesh()
+    {
+        if ( !TryGetComponent( out MeshFilter m ) )
+            m = gameObject.AddComponent<MeshFilter>();
+        return m.mesh;
+    }
+
+    void RemoveMesh()
+    {
+        if ( TryGetComponent( out MeshFilter m ) )
+        {
+            m.mesh.Clear();
+            Destroy( m.mesh );
+        }
     }
 
     void RefreshVertices()
@@ -167,7 +185,7 @@ public class Voxel : MonoBehaviour
 
                 float fDeltaPhi = Mathf.PI / 2.0f;
                 float fDeltaPhiInner = Mathf.PI / 2.0f;
-                while ( fOuterRadius * fDeltaPhi > vSideLength[ 2 ] )
+                while ( fOuterRadius * Mathf.Sin( fTheta ) * fDeltaPhi > vSideLength[ 2 ] )
                     fDeltaPhi /= 2.0f;
                 while ( fInnerRadius * fDeltaPhiInner > vSideLength[ 2 ] )
                     fDeltaPhiInner /= 2.0f;
@@ -202,11 +220,15 @@ public class Voxel : MonoBehaviour
 
         m_pvVertices = pVerts;
 
-        Mesh m = GetComponent<MeshFilter>().mesh;
-        if ( m.vertices.Any() )
+        if ( m_vNewExposedNormals.Any() )
+        {
+            Mesh m = GetOrAddMesh();
             m.vertices = m_pvVertices;
-
-        RefreshMesh();
+            m.RecalculateBounds();
+            m.RecalculateNormals();
+            m.RecalculateTangents();
+        }
+        UpdateCollider();
     }
 
     void RefreshUVs()
@@ -245,7 +267,6 @@ public class Voxel : MonoBehaviour
             }
         }
 
-        Mesh m = GetComponent<MeshFilter>().mesh;
         for ( int i = 0; i < 8; ++i )
         {
             Vector2[] ppvUV = GetCubeUV( i );
@@ -270,16 +291,24 @@ public class Voxel : MonoBehaviour
             }
 
             m_ppvUV[ i ] = ppvUV;
-            if ( m.vertices.Any() )
-                m.SetUVs( i, m_ppvUV[ i ] );
         }
-        RefreshMesh();
+
+        if ( m_vNewExposedNormals.Any() )
+        {
+            Mesh m = GetOrAddMesh();
+            for ( int i = 0; i < 8; ++i )
+            {
+                List<Vector2> muvs = new();
+                m.GetUVs( i, muvs );
+                if ( muvs.Any() )
+                    m.SetUVs( i, m_ppvUV[ i ] );
+            }
+            m.RecalculateUVDistributionMetrics();
+        }
     }
 
     void RefreshTriangles()
     {
-        Mesh m = GetComponent<MeshFilter>().mesh;
-
         List<int> piTriangles = new();
         foreach ( Vector3 vNorm in m_vNewExposedNormals )
             for ( int i = 0; i < m_piTriangles.Length; i += 6 )
@@ -290,28 +319,15 @@ public class Voxel : MonoBehaviour
 
         if ( piTriangles.Any() )
         {
+            Mesh m = GetOrAddMesh();
             m.vertices = m_pvVertices;
             for ( int i = 0; i < 8; ++i )
                 m.SetUVs( i, m_ppvUV[ i ] );
             m_piTriangles = piTriangles.ToArray();
             m.triangles = m_piTriangles;
         }
-        else
-            m.Clear();
 
-        RefreshMesh();
-    }
-
-    void RefreshMesh()
-    {
-        Mesh m = GetComponent<MeshFilter>().mesh;
-
-        m.RecalculateBounds();
-        m.RecalculateNormals();
-        m.RecalculateTangents();
-        m.RecalculateUVDistributionMetrics();
-
-        UpdateCollider();
+        UpdateCollider(); // enable/disable if we have no exposed faces
     }
 
     Vector3 GetUpVector() 
@@ -327,40 +343,35 @@ public class Voxel : MonoBehaviour
 
     void UpdateCollider()
     {
-        if ( TryGetComponent( out BoxCollider bc ) )
+        if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
         {
-            if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
+            if ( m_vNewExposedNormals.Any() )
             {
-                DestroyImmediate( bc );
-                gameObject.AddComponent<MeshCollider>().convex = true;
+                if ( !TryGetComponent( out MeshCollider mc ) )
+                {
+                    mc = gameObject.AddComponent<MeshCollider>();
+                    mc.convex = true;
+                }
+                mc.sharedMesh = GetComponent<MeshFilter>().mesh;
             }
-            else
+            else if ( TryGetComponent( out MeshCollider mc ) )
+                Destroy( mc );
+        }
+        else
+        {
+            if ( m_vNewExposedNormals.Any() )
             {
+                if ( !TryGetComponent( out BoxCollider bc ) )
+                    bc = gameObject.AddComponent<BoxCollider>();
+
                 Vector3 vBoxSize = Vector3.zero;
                 for ( int i = 0; i < 3; ++i )
                     vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
                 bc.size = vBoxSize;
             }
+            else if ( TryGetComponent( out BoxCollider bc ) )
+                Destroy( bc );
         }
-        else if ( TryGetComponent( out MeshCollider mc ) )
-        {
-            if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
-                mc.sharedMesh = GetComponent<MeshFilter>().mesh;
-            else
-            {
-                DestroyImmediate( mc );
-                Vector3 vBoxSize = Vector3.zero;
-                for ( int i = 0; i < 3; ++i )
-                    vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
-                gameObject.AddComponent<BoxCollider>().size = vBoxSize;
-            }
-        }
-        else throw new InvalidOperationException( "Invalid state - voxel must have boxcollider or meshcollider" );
-
-        if ( m_vNewExposedNormals.Any() )
-            GetComponent<Collider>().enabled = true;
-        else
-            GetComponent<Collider>().enabled = false;
     }
 
     Vector3 GetFaceNormal( int i )
@@ -383,6 +394,12 @@ public class Voxel : MonoBehaviour
         Vector3 vTriangleNorm1 = Vector3.Cross( A, B ).normalized;
         Vector3 vTriangleNorm2 = Vector3.Cross( C, D ).normalized;
 
+        // for degenerate points, normal should be zero but cross may not be in specific cases
+        if ( vPoints[ 1 ] == vPoints[ 2 ] )
+            vTriangleNorm1 = Vector3.zero;
+        if ( vPoints[ 4 ] == vPoints[ 5 ] )
+            vTriangleNorm2 = Vector3.zero;
+
         // only return zero if both triangle norms are zero
         return vTriangleNorm1 == Vector3.zero ? -vTriangleNorm2 : vTriangleNorm1;
     }
@@ -393,6 +410,6 @@ public class Voxel : MonoBehaviour
         // Unity Docs:
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.
         //    Resources.UnloadUnusedAssets also destroys the mesh but it is usually only called when loading a new level.
-        Destroy( GetComponent<MeshFilter>().mesh );
+        RemoveMesh();
     }
 }

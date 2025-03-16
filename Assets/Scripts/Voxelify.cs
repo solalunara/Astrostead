@@ -54,21 +54,9 @@ public class Voxelify : VoxelGroup
                     {
                         for ( w = 0; w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f < vSize.z / 2.0f; ++w )
                         {
-                            Vector3Int viVoxelCoords = new( u, v, w );
                             Vector3 vVoxelCentre = new( u * m_vVoxelSize.x + ( -vSize.x + m_vVoxelSize.x ) / 2.0f, 
                                                         v * m_vVoxelSize.y + ( -vSize.y + m_vVoxelSize.y ) / 2.0f, 
                                                         w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f );
-                            for ( int i = 0; i < 3; ++i )
-                                vVoxelCentre[ i ] /= transform.lossyScale[ i ];
-                            GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
-                            pVoxelObj.transform.parent = transform;
-                            pVoxelObj.transform.localPosition = vVoxelCentre;
-                            pVoxelObj.transform.localRotation = Quaternion.identity;
-                            m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
-
-                            // if we're an edge, tell the voxel that
                             List<Vector3> pNorms = new();
                             if ( u == 0 )
                                 pNorms.Add( -Vector3.right   );
@@ -83,8 +71,19 @@ public class Voxelify : VoxelGroup
                             if ( vVoxelCentre.z * transform.lossyScale.z + m_vVoxelSize.z >= vSize.z / 2.0f )
                                 pNorms.Add(  Vector3.forward );
 
+                            Vector3Int viVoxelCoords = new( u, v, w );
+                            for ( int i = 0; i < 3; ++i )
+                                vVoxelCentre[ i ] /= transform.lossyScale[ i ];
+                            GameObject pVoxelObj = new( "voxel" );
+                            pVoxelObj.transform.parent = transform;
+                            pVoxelObj.transform.localPosition = vVoxelCentre;
+                            pVoxelObj.transform.localRotation = Quaternion.identity;
+                            m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
+                            m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
                             m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
                             m_pVoxels[ viVoxelCoords ].Block = pNorms.Contains( Vector3.up ) ? BlockType.GRASS : BlockType.DIRT;
+
+                            pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                         }
                     }
                 }
@@ -120,8 +119,7 @@ public class Voxelify : VoxelGroup
                             Vector3 vVoxelCentre = new( fRadius * Mathf.Cos( fTheta ), fY, fRadius * Mathf.Sin( fTheta ) );
                             for ( int i = 0; i < 3; ++i )
                                 vVoxelCentre[ i ] /= transform.lossyScale[ i ];
-                            GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
+                            GameObject pVoxelObj = new( "cvoxel" );
                             pVoxelObj.transform.parent = transform;
                             pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
@@ -139,6 +137,8 @@ public class Voxelify : VoxelGroup
 
                             m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
                             m_pVoxels[ viVoxelCoords ].Block = fRadius + fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
+
+                            pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                         }
                     }
                 }
@@ -162,9 +162,6 @@ public class Voxelify : VoxelGroup
                     while ( fInnerRadius * fDeltaThetaInner > m_vVoxelSize[ 1 ] )
                         fDeltaThetaInner /= 2.0f;
 
-                    float fDeltaPhi = Mathf.PI / 2.0f;
-                    while ( fOuterRadius * fDeltaPhi > m_vVoxelSize[ 2 ] )
-                        fDeltaPhi /= 2.0f;
 
                     for ( v = 0; ( v + 0.5f ) * fDeltaTheta < Mathf.PI; ++v )
                     {
@@ -173,31 +170,32 @@ public class Voxelify : VoxelGroup
                         float fLowerTheta = fTheta + fDeltaTheta / 2.0f;
                         float fThetaRadius = fSRadius * Mathf.Sin( fTheta );
 
+                        float fDeltaPhi = Mathf.PI / 2.0f;
+                        while ( fOuterRadius * Mathf.Sin( fTheta ) * fDeltaPhi > m_vVoxelSize[ 2 ] )
+                            fDeltaPhi /= 2.0f;
+
                         for ( w = 0; ( w + 0.5f ) * fDeltaPhi < 2 * Mathf.PI; ++w )
                         {
                             float fPhi = w * fDeltaPhi + fDeltaPhi / 2.0f;
-
-                            Vector3Int viVoxelCoords = new( u, v, w );
                             Vector3 vVoxelCentre = new( fSRadius * Mathf.Sin( fTheta ) * Mathf.Sin( fPhi ), 
                                                         fSRadius * Mathf.Cos( fTheta ), 
                                                         fSRadius * Mathf.Sin( fTheta ) * Mathf.Cos( fPhi ) );
+                            List<Vector3> pNorms = new();
+                            if ( fSRadius + fSDeltaRadius >= fSRadiusMax )
+                                pNorms.Add( vVoxelCentre.normalized );
+
+                            Vector3Int viVoxelCoords = new( u, v, w );
                             for ( int i = 0; i < 3; ++i )
                                 vVoxelCentre[ i ] /= transform.lossyScale[ i ];
-                            GameObject pVoxelObj = GameObject.CreatePrimitive( PrimitiveType.Cube );
-                            pVoxelObj.GetComponent<Renderer>().material = VoxelAtlas.VoxelMaterial;
+                            GameObject pVoxelObj = new( "svoxel" );
                             pVoxelObj.transform.parent = transform;
                             pVoxelObj.transform.localPosition = vVoxelCentre;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
                             m_pVoxels.Add( viVoxelCoords, pVoxelObj.AddComponent<Voxel>() );
                             m_pVoxels[ viVoxelCoords ].GeoData = gGeoData;
-
-                            // if we're an edge, tell the voxel that
-                            List<Vector3> pNorms = new();
-                            if ( fSRadius + fSDeltaRadius >= fSRadiusMax )
-                                pNorms.Add( vVoxelCentre.normalized );
-
                             m_pVoxels[ viVoxelCoords ].ExposedNormals = pNorms;
                             m_pVoxels[ viVoxelCoords ].Block = pNorms.Any() ? BlockType.GRASS : BlockType.DIRT;
+                            pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                         }
                     }
                 }

@@ -42,7 +42,7 @@ static class Statics
             m.GetUVs( i, s_pCubeUV[ i ] );
         }
         s_pCubeTriangles = m.triangles;
-        MonoBehaviour.Destroy( pTempCube );
+        MonoBehaviour.DestroyImmediate( pTempCube );
     }
     private static Vector3[] s_pCubeVertices = null;
     private static readonly List<Vector2>[] s_pCubeUV = new List<Vector2>[ 8 ];

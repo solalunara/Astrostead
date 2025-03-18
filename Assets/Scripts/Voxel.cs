@@ -21,26 +21,77 @@ public enum BlockType
     DIRT
 }
 
-public struct GeometryData
-{
-    public Geometry m_iGeometry;
-    public Vector3 m_ptGeometryOrigin;
-    public Quaternion m_qGeometryRotation;
-    public Vector3 m_vSideLength;
-}
-
 public class Voxel : MonoBehaviour
 {
     // we assume for all voxels that the transform.position will be in the centre of the object
-    public GeometryData GeoData
-    {
-        get => m_gGeometry;
+    public VoxelGroup OwningGroup
+    { 
+        get => m_pOwningGroup;
         set
         {
-            m_gGeometry = value;
-            RefreshVertices();
+            if ( m_pOwningGroup != value )
+            {
+                m_pOwningGroup = value;
+                RefreshVertices();
+                RefreshTriangles();
+            }
         }
     }
+
+    public float DeltaV => m_fDeltaV;
+    public float DeltaW => m_fDeltaW;
+
+    public (uint, uint, uint) UVW
+    {
+        get => new( U, V, W );
+        set
+        {
+            m_u = value.Item1;
+            m_v = value.Item2;
+            m_w = value.Item3;
+            RefreshVertices();
+            RefreshTriangles();
+        }
+    }
+
+    public uint U
+    { 
+        get => m_u; 
+        set
+        {
+            m_u = value;
+            RefreshVertices();
+            RefreshTriangles();
+        }
+    }
+    public uint V
+    { 
+        get => m_v; 
+        set
+        {
+            m_v = value;
+            RefreshVertices();
+            RefreshTriangles();
+        }
+    }
+    public uint W
+    { 
+        get => m_w; 
+        set
+        {
+            m_w = value;
+            RefreshVertices();
+            RefreshTriangles();
+        }
+    }
+
+    uint m_u;
+    uint m_v;
+    uint m_w;
+
+    public bool m_bCalculatingExposedNormals = false;
+
+    VoxelGroup m_pOwningGroup;
     public BlockType Block
     {
         get => m_iType;
@@ -50,43 +101,42 @@ public class Voxel : MonoBehaviour
             RefreshUVs();
         }
     }
-    public List<Vector3> ExposedNormals
-    {
-        get
-        {
-            Vector3[] ret = new Vector3[ m_vNewExposedNormals.Count() ];
-            m_vNewExposedNormals.CopyTo( ret );
-            return ret.ToList();
-        }
-        set
-        {
-            if ( m_vNewExposedNormals.SequenceEqual( value ) )
-                return;
 
-            m_vNewExposedNormals.Clear();
-            m_vNewExposedNormals.AddRange( value );
-            RefreshTriangles();
-        }
-    }
-
-    GeometryData m_gGeometry;
     Vector3[] m_pvVertices;
     readonly Vector2[][] m_ppvUV = new Vector2[ 8 ][];
     int[] m_piTriangles;
     BlockType m_iType;
-    readonly List<Vector3> m_vNewExposedNormals = new();
+
+    // for cylindrical and spherical, the delta won't exactly match the size
+    // it starts at pi/2 and halves as neccesary
+    float m_fDeltaV;
+    float m_fDeltaW;
+
+    readonly Vector3[] m_pvNormals = new Vector3[ 6 ];
 
     void Awake()
     {
         m_pvVertices = GetCubeVertices();
         for ( int i = 0; i < 8; ++i )
             m_ppvUV[ i ] = GetCubeUV( i );
-        m_piTriangles = GetCubeTriangles();
+        m_piTriangles = new int[ 0 ];
     }
 
-    void OnEnable()
+    List<Vector3> GetExposedNormals()
     {
-        RefreshTriangles();
+        List<Vector3> pVoxelNorms = m_pvNormals.ToList();
+        pVoxelNorms.RemoveAll( v => v == Vector3.zero );
+
+        if ( !m_pOwningGroup )
+            return new();
+
+        foreach ( Vector3 vNorm in m_pOwningGroup.GetNearestNeighborNormals( this ) )
+            if ( pVoxelNorms.Contains( GetNormalClosestToVector( vNorm ) ) ) //closest so that it's an exact match
+                pVoxelNorms.Remove( GetNormalClosestToVector( vNorm ) );
+
+        if ( pVoxelNorms.Count != 1 )
+            return pVoxelNorms;
+        return pVoxelNorms;
     }
 
     Mesh GetOrAddMesh()
@@ -112,13 +162,14 @@ public class Voxel : MonoBehaviour
         }
     }
 
-    void RefreshVertices()
+    public void RefreshVertices()
     {
+        if ( !m_pOwningGroup )
+            return;
+
         Vector3[] pVerts = GetCubeVertices();
-        Vector3 vSideLength = m_gGeometry.m_vSideLength;
-        Vector3 ptGeometryOrigin = m_gGeometry.m_ptGeometryOrigin;
-        Quaternion qGeometryRotation = m_gGeometry.m_qGeometryRotation;
-        switch ( m_gGeometry.m_iGeometry )
+        Vector3 vSideLength = m_pOwningGroup.VoxelSize;
+        switch ( m_pOwningGroup.GetGeometry() )
         {
             case Geometry.CARTESIAN:
                 Vector3 vDirectionalSideLength = Vector3.zero;
@@ -126,14 +177,17 @@ public class Voxel : MonoBehaviour
                 {
                     for ( int j = 0; j < 3; ++j )
                         vDirectionalSideLength[ j ] = pVerts[ i ][ j ] > 0 ? vSideLength[ j ] : -vSideLength[ j ];
-                    //vDirectionalSideLength = qGeometryRotation * vDirectionalSideLength;
                     pVerts[ i ] = vDirectionalSideLength / 2;
                 }
+                m_fDeltaV = vSideLength[ 1 ];
+                m_fDeltaW = vSideLength[ 2 ];
                 break;
 
             case Geometry.CYLINDRICAL:
             {
-                Vector3 ptLocalOrigin = Quaternion.Inverse( qGeometryRotation ) * ( transform.position - ptGeometryOrigin );
+                Vector3 ptLocalOrigin = transform.localPosition;
+                for ( int i = 0; i < 3; ++i ) 
+                    ptLocalOrigin[ i ] *= transform.parent.localScale[ i ];
                 Vector3 ptLocalOriginProjected = Vector3.ProjectOnPlane( ptLocalOrigin, Vector3.up );
                 float fRadius = ptLocalOriginProjected.magnitude;
                 float fInnerRadius = fRadius - vSideLength[ 0 ] / 2.0f;
@@ -171,12 +225,16 @@ public class Voxel : MonoBehaviour
                     //pVerts[ i ] = qGeometryRotation * pVerts[ i ];
                 }
 
+                m_fDeltaV = vSideLength[ 1 ];
+                m_fDeltaW = fDeltaTheta;
                 break;
             }
 
             case Geometry.SPHERICAL:
             {
-                Vector3 ptLocalOrigin = Quaternion.Inverse( qGeometryRotation ) * ( transform.position - ptGeometryOrigin );
+                Vector3 ptLocalOrigin = transform.localPosition;
+                for ( int i = 0; i < 3; ++i ) 
+                    ptLocalOrigin[ i ] *= transform.parent.localScale[ i ];
                 float fRadius = ptLocalOrigin.magnitude;
                 float fInnerRadius = fRadius - vSideLength[ 0 ] / 2.0f;
                 float fOuterRadius = fRadius + vSideLength[ 0 ] / 2.0f;
@@ -197,7 +255,7 @@ public class Voxel : MonoBehaviour
                 float fDeltaPhiInner = Mathf.PI / 2.0f;
                 while ( fOuterRadius * Mathf.Sin( fTheta ) * fDeltaPhi > vSideLength[ 2 ] )
                     fDeltaPhi /= 2.0f;
-                while ( fInnerRadius * fDeltaPhiInner > vSideLength[ 2 ] )
+                while ( fInnerRadius * Mathf.Sin( fTheta ) * fDeltaPhiInner > vSideLength[ 2 ] )
                     fDeltaPhiInner /= 2.0f;
 
 
@@ -224,13 +282,16 @@ public class Voxel : MonoBehaviour
                     pVerts[ i ][ 2 ] = r * Mathf.Sin( t ) * Mathf.Cos( p ) - ptLocalOrigin[ 2 ];
                     //pVerts[ i ] = qGeometryRotation * pVerts[ i ];
                 }
+
+                m_fDeltaV = fDeltaTheta;
+                m_fDeltaW = fDeltaPhi;
                 break;
             }
         }
 
         m_pvVertices = pVerts;
 
-        if ( m_vNewExposedNormals.Any() )
+        if ( m_piTriangles.Any() )
         {
             Mesh m = GetOrAddMesh();
             m.vertices = m_pvVertices;
@@ -239,9 +300,20 @@ public class Voxel : MonoBehaviour
             m.RecalculateTangents();
             UpdateCollider();
         }
+
+        int[] piTriangles = GetCubeTriangles();
+        for ( int i = 0; i < m_pvNormals.Length; ++i )
+        {
+            bool bDegenerate = false;
+            Vector3 vNorm = GetFaceNormal( i * 6, piTriangles );
+            for ( int j = 0; j < i; ++j )
+                if ( Vector3.Dot( m_pvNormals[ j ], vNorm ) > 0.97f )
+                    bDegenerate = true;
+            m_pvNormals[ i ] = bDegenerate ? Vector3.zero : vNorm;
+        }
     }
 
-    void RefreshUVs()
+    public void RefreshUVs()
     {
         Vector3 vUpVector = GetUpVector();
 
@@ -277,6 +349,7 @@ public class Voxel : MonoBehaviour
             }
         }
 
+        int[] piTriangles = GetCubeTriangles();
         for ( int i = 0; i < 8; ++i )
         {
             Vector2[] ppvUV = GetCubeUV( i );
@@ -284,18 +357,18 @@ public class Voxel : MonoBehaviour
             if ( !m_ppvUV[ i ].Any() )
                 continue;
 
-            for ( int j = 0; j < m_piTriangles.Length; j += 6 )
+            for ( int j = 0; j < piTriangles.Length; j += 6 )
             {
                 for ( int n = 0; n < 6; ++n )
                 {
                     for ( int k = 0; k < 2; ++k )
                     {
-                        if ( Vector3.Dot( GetFaceNormal( j ), vUpVector ) > 0.97f )
-                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vTopTextureMaxs[ k ] : vTopTextureMins[ k ];
-                        else if ( Vector3.Dot( GetFaceNormal( j ), vUpVector ) < -0.97f )
-                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vBottomTextureMaxs[ k ] : vBottomTextureMins[ k ];
+                        if ( Vector3.Dot( GetFaceNormal( j, piTriangles ), vUpVector ) > 0.97f )
+                            ppvUV[ piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ piTriangles[ j + n ] ][ k ] > 0.5f ? vTopTextureMaxs[ k ] : vTopTextureMins[ k ];
+                        else if ( Vector3.Dot( GetFaceNormal( j, piTriangles ), vUpVector ) < -0.97f )
+                            ppvUV[ piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ piTriangles[ j + n ] ][ k ] > 0.5f ? vBottomTextureMaxs[ k ] : vBottomTextureMins[ k ];
                         else
-                            ppvUV[ m_piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ m_piTriangles[ j + n ] ][ k ] > 0.5f ? vSideTextureMaxs[ k ] : vSideTextureMins[ k ];
+                            ppvUV[ piTriangles[ j + n ] ][ k ] = m_ppvUV[ i ][ piTriangles[ j + n ] ][ k ] > 0.5f ? vSideTextureMaxs[ k ] : vSideTextureMins[ k ];
                     }
                 }
             }
@@ -303,7 +376,7 @@ public class Voxel : MonoBehaviour
             m_ppvUV[ i ] = ppvUV;
         }
 
-        if ( m_vNewExposedNormals.Any() )
+        if ( m_piTriangles.Any() )
         {
             Mesh m = GetOrAddMesh();
             for ( int i = 0; i < 8; ++i )
@@ -317,14 +390,18 @@ public class Voxel : MonoBehaviour
         }
     }
 
-    void RefreshTriangles()
+    public void RefreshTriangles()
     {
+        if ( !m_bCalculatingExposedNormals || !m_pOwningGroup )
+            return;
+
+        var piAllTriangles = GetCubeTriangles();
         List<int> piTriangles = new();
-        foreach ( Vector3 vNorm in m_vNewExposedNormals )
-            for ( int i = 0; i < m_piTriangles.Length; i += 6 )
-                if ( Vector3.Dot( GetFaceNormal( i ), vNorm ) > 0.97f )
+        foreach ( Vector3 vNorm in GetExposedNormals() )
+            for ( int i = 0; i < piAllTriangles.Length; i += 6 )
+                if ( Vector3.Dot( GetFaceNormal( i, piAllTriangles ), vNorm ) > 0.97f )
                     for ( int u = 0; u < 6; ++u )
-                        piTriangles.Add( m_piTriangles[ i + u ] );
+                        piTriangles.Add( piAllTriangles[ i + u ] );
 
 
         if ( piTriangles.Any() )
@@ -340,22 +417,25 @@ public class Voxel : MonoBehaviour
         UpdateCollider(); // enable/disable if we have no exposed faces
     }
 
-    Vector3 GetUpVector() 
+    public Vector3 GetUpVector() 
     {
-        return m_gGeometry.m_iGeometry switch
+        return m_pOwningGroup.GetGeometry() switch
         {
             Geometry.CARTESIAN => Vector3.up,
-            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane(Quaternion.Inverse(m_gGeometry.m_qGeometryRotation) * (transform.position - m_gGeometry.m_ptGeometryOrigin), Vector3.up),
-            Geometry.SPHERICAL => Quaternion.Inverse(m_gGeometry.m_qGeometryRotation) * (transform.position - m_gGeometry.m_ptGeometryOrigin),
+            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane( transform.localPosition, Vector3.up ).normalized,
+            Geometry.SPHERICAL => transform.localPosition.normalized,
             _ => Vector3.up,
         };
     }
 
     void UpdateCollider()
     {
-        if ( m_gGeometry.m_iGeometry != Geometry.CARTESIAN )
+        if ( !m_pOwningGroup )
+            return;
+
+        if ( m_pOwningGroup.GetGeometry() != Geometry.CARTESIAN )
         {
-            if ( m_vNewExposedNormals.Any() )
+            if ( m_piTriangles.Any() )
             {
                 if ( !TryGetComponent( out MeshCollider mc ) )
                 {
@@ -370,14 +450,14 @@ public class Voxel : MonoBehaviour
         }
         else
         {
-            if ( m_vNewExposedNormals.Any() )
+            if ( m_piTriangles.Any() )
             {
                 if ( !TryGetComponent( out BoxCollider bc ) )
                     bc = gameObject.AddComponent<BoxCollider>();
 
                 Vector3 vBoxSize = Vector3.zero;
                 for ( int i = 0; i < 3; ++i )
-                    vBoxSize[ i ] = m_gGeometry.m_vSideLength[ i ] / transform.lossyScale[ i ];
+                    vBoxSize[ i ] = m_pOwningGroup.VoxelSize[ i ] / transform.lossyScale[ i ];
                 bc.size = vBoxSize;
                 bc.enabled = true;
             }
@@ -386,17 +466,17 @@ public class Voxel : MonoBehaviour
         }
     }
 
-    Vector3 GetFaceNormal( int i )
+    Vector3 GetFaceNormal( int i, int[] piTriangles )
     {
         if ( i % 6 != 0 )
             throw new ArgumentException( nameof(i) + " = " + i + ": not a valid face index - must be multiple of 6" );
         Vector3[] vPoints = new Vector3[] {
-            m_pvVertices[ m_piTriangles[ i ] ],
-            m_pvVertices[ m_piTriangles[ i + 1 ] ],
-            m_pvVertices[ m_piTriangles[ i + 2 ] ],
-            m_pvVertices[ m_piTriangles[ i + 3 ] ],
-            m_pvVertices[ m_piTriangles[ i + 4 ] ],
-            m_pvVertices[ m_piTriangles[ i + 5 ] ],
+            m_pvVertices[ piTriangles[ i ] ],
+            m_pvVertices[ piTriangles[ i + 1 ] ],
+            m_pvVertices[ piTriangles[ i + 2 ] ],
+            m_pvVertices[ piTriangles[ i + 3 ] ],
+            m_pvVertices[ piTriangles[ i + 4 ] ],
+            m_pvVertices[ piTriangles[ i + 5 ] ],
         };
         Vector3 A = vPoints[ 1 ] - vPoints[ 0 ];
         Vector3 B = vPoints[ 2 ] - vPoints[ 0 ];
@@ -416,6 +496,14 @@ public class Voxel : MonoBehaviour
         return vTriangleNorm1 == Vector3.zero ? -vTriangleNorm2 : vTriangleNorm1;
     }
 
+    public Vector3 GetNormalClosestToVector( Vector3 v )
+    {
+        Vector3 vNorm = Vector3.zero;
+        for ( int i = 0; i < m_pvNormals.Length; ++i )
+            if ( Vector3.Dot( m_pvNormals[ i ], v ) >= Vector3.Dot( vNorm, v ) )
+                vNorm = m_pvNormals[ i ];
+        return vNorm;
+    }
 
     void OnDisable()
     {

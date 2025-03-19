@@ -10,6 +10,7 @@ using UnityEngine.UIElements;
 
 public abstract class VoxelGroup : MonoBehaviour
 {
+    public bool m_bNotifyNeighborsOnVoxelDelete = false;
     public Vector3 VoxelSize => m_vVoxelSize;
     [SerializeField] protected Vector3 m_vVoxelSize;
     private Geometry m_iGeometry = Geometry.NONE;
@@ -150,6 +151,20 @@ public abstract class VoxelGroup : MonoBehaviour
 
     public IEnumerable<Voxel> GetNearestNeighbors( Voxel pVoxel )
     {
+        foreach ( var val in GetNeighbors( pVoxel, false ) )
+        {
+            var uvw = ((uint)val.Item1, (uint)val.Item2, (uint)val.Item3);
+            yield return m_pVoxels[ uvw ];
+        }
+    }
+    public IEnumerable<(long, long, long)> GetExposedNeighbors( Voxel pVoxel ) 
+    {
+        foreach ( var val in GetNeighbors( pVoxel, true ) )
+            yield return val;
+    }
+
+    IEnumerable<(long, long, long)> GetNeighbors( Voxel pVoxel, bool bExposed )
+    {
         (uint u, uint v, uint w) = pVoxel.UVW;
         // for u-1, we will only ever have to update one block
         // for u+1, we need to figure out how many additional blocks there are on the layer above us
@@ -157,27 +172,30 @@ public abstract class VoxelGroup : MonoBehaviour
         uint iNumVAtAboveU = (uint)Mathf.RoundToInt( GetDeltaV( u ) / GetDeltaV( u + 1 ) );
         for ( uint i = 0; i < iNumVAtAboveU; ++i )
         {
-            uint iNumWAtAboveU = (uint)Mathf.RoundToInt( GetDeltaW( u, v ) / GetDeltaW( u + 1, v + i ) );
+            uint iNumWAtAboveU = (uint)Mathf.RoundToInt( GetDeltaW( u, v ) / GetDeltaW( u + 1, v * iNumVAtAboveU + i ) );
             for ( uint j = 0; j < iNumWAtAboveU; ++j )
             {
-                if ( m_pVoxels.ContainsKey( (u+1, v * iNumVAtAboveU + i, w * iNumWAtAboveU + j) ) )
-                    yield return m_pVoxels[ (u+1, v * iNumVAtAboveU + i, w * iNumWAtAboveU + j) ];
+                if ( m_pVoxels.ContainsKey( (u+1, v * iNumVAtAboveU + i, w * iNumWAtAboveU + j) ) == !bExposed )
+                    yield return (u+1, v * iNumVAtAboveU + i, w * iNumWAtAboveU + j);
             }
         }
         if ( u != 0 )
         {
             uint iInverseNumVAtBelowU = (uint)Mathf.RoundToInt( GetDeltaV( u - 1 ) / GetDeltaV( u ) );
             uint iInverseNumWAtBelowU = (uint)Mathf.RoundToInt( GetDeltaW( u - 1, v / iInverseNumVAtBelowU ) / GetDeltaW( u, v ) );
-            if ( m_pVoxels.ContainsKey( (u-1, v / iInverseNumVAtBelowU, w / iInverseNumWAtBelowU) ) )
-                yield return m_pVoxels[ (u-1, v / iInverseNumVAtBelowU, w / iInverseNumWAtBelowU) ];
+            if ( m_pVoxels.ContainsKey( (u-1, v / iInverseNumVAtBelowU, w / iInverseNumWAtBelowU) ) == !bExposed )
+                yield return (u-1, v / iInverseNumVAtBelowU, w / iInverseNumWAtBelowU);
         }
+        else if ( GetGeometry() == Geometry.CARTESIAN && bExposed )
+            yield return (u-1, v, w);
 
         // with v it's similar except the direction of more/less will vary, so store both
         // we also want to still notify even if the count is lower on that end
         for ( int v_iter = -1; v_iter <= 1; v_iter += 2 )
         {
-            if ( v + v_iter < 0 )
-                continue;
+            if ( GetGeometry() == Geometry.SPHERICAL )
+                if ( ( v + v_iter ) * GetDeltaV( u ) > 2 * Mathf.PI )
+                    continue;
 
             float fNumAtDiffV = GetDeltaW( u, v ) / GetDeltaW( u, (uint)(v + v_iter) );
             uint iNumAtDiffV = (uint)Mathf.RoundToInt( fNumAtDiffV );
@@ -187,9 +205,9 @@ public abstract class VoxelGroup : MonoBehaviour
 
             for ( uint i = 0; i < iNumAtDiffV; ++i )
             {
-                uint w_iter = w / iInverseNumAtDiffV + i;
-                if ( m_pVoxels.ContainsKey( (u, (uint)(v + v_iter), w_iter) ) )
-                    yield return m_pVoxels[ (u, (uint)(v + v_iter), w_iter) ];
+                uint w_iter = iInverseNumAtDiffV > 1 ? w / iInverseNumAtDiffV : w * iNumAtDiffV + i;
+                if ( m_pVoxels.ContainsKey( (u, (uint)(v + v_iter), w_iter) ) == !bExposed )
+                    yield return (u, v + v_iter, w_iter);
             }
         }
 
@@ -197,13 +215,31 @@ public abstract class VoxelGroup : MonoBehaviour
         // the main difference with w is that in spherical and cylindrical geometry it wraps around
         for ( int w_iter = -1; w_iter <= 1; w_iter += 2 )
         {
-            uint w_count = (uint)Mathf.RoundToInt( 2 * Mathf.PI / GetDeltaW( u, v ) );
-            uint w_diff = w + w_iter < 0 ? w_count - 1u : ( w + w_iter >= w_count ? 0u : (uint)(w + w_iter) );
-            if ( m_pVoxels.ContainsKey( (u, v, w_diff) ) )
-                yield return m_pVoxels[ (u, v, w_diff) ];
+            if ( GetGeometry() != Geometry.CARTESIAN )
+            {
+                uint w_count = (uint)Mathf.RoundToInt( 2 * Mathf.PI / GetDeltaW( u, v ) );
+                uint w_diff = w + w_iter < 0 ? w_count - 1u : ( w + w_iter >= w_count ? 0u : (uint)(w + w_iter) );
+                if ( m_pVoxels.ContainsKey( (u, v, w_diff) ) == !bExposed )
+                    yield return (u, v, w_diff);
+            }
+            else
+                if ( m_pVoxels.ContainsKey( (u, v, (uint)(w + w_iter)) ) == !bExposed )
+                    yield return (u, v, (uint)(w + w_iter) );
         }
     }
+    public void BreakVoxel( Voxel pVoxel, bool bCalledFromVoxelDisable = false )
+    {
+        (uint u, uint v, uint w) = pVoxel.UVW;
+        if ( !m_pVoxels.ContainsKey( (u, v, w) ) || m_pVoxels[ (u, v, w) ] != pVoxel )
+            return;
+        
+        m_pVoxels.Remove( (u, v, w) );
+        foreach ( Voxel pNN in GetNearestNeighbors( pVoxel ) )
+            pNN.RefreshTriangles();
 
+        if ( !bCalledFromVoxelDisable )
+            Destroy( pVoxel.gameObject );
+    }
     public IEnumerable<Vector3> GetNearestNeighborNormals( Voxel pVoxel )
     {
         (uint u, uint v, uint w) = pVoxel.UVW;
@@ -294,7 +330,98 @@ public abstract class VoxelGroup : MonoBehaviour
             throw new InvalidProgramException( "u_diff, v_diff, and w_diff cannot all be 0 for a nearest neighbor" );
         }
     }
+    public IEnumerable<Vector3> GetExposedNeighborNormals( Voxel pVoxel )
+    {
+        (uint u, uint v, uint w) = pVoxel.UVW;
+        float fDeltaRadius = GetDeltaU();
+        float fDeltaTheta = GetDeltaV( u );
+        float fDeltaPhi = GetDeltaW( u, v );
+        foreach ( var pNeighbor in GetExposedNeighbors( pVoxel ) )
+        {
+            int u_diff = (int)(pNeighbor.Item1 - pVoxel.U);
+            if ( u_diff != 0 )
+            {
+                switch ( GetGeometry() )
+                {
+                    case Geometry.CARTESIAN:
+                        yield return ( u_diff * Vector3.right ).normalized;
+                        break;
 
+                    case Geometry.CYLINDRICAL:
+                        yield return ( u_diff * new Vector3( pVoxel.transform.localPosition.x, 0, pVoxel.transform.localPosition.z ) ).normalized;
+                        break;
+
+                    case Geometry.SPHERICAL:
+                        yield return ( u_diff * pVoxel.transform.localPosition ).normalized;
+                        break;
+                }
+                continue;
+            }
+            int v_diff = (int)(pNeighbor.Item2 - pVoxel.V);
+            if ( v_diff != 0 )
+            {
+                switch ( GetGeometry() )
+                {
+                    case Geometry.CARTESIAN:
+                        yield return ( v_diff * Vector3.up ).normalized;
+                        break;
+
+                    case Geometry.CYLINDRICAL:
+                        yield return ( v_diff * Vector3.up ).normalized;
+                        break;
+
+                    case Geometry.SPHERICAL:
+                        float fSRadius = u * fDeltaRadius + fDeltaRadius / 2.0f;
+                        float fTheta = ( v + v_diff ) * fDeltaTheta + fDeltaTheta / 2.0f;
+                        float fPhi = w * fDeltaPhi + fDeltaPhi / 2.0f;
+                        Vector3 vTheoreticalVoxelCentre = new( fSRadius * Mathf.Sin( fTheta ) * Mathf.Sin( fPhi ) / transform.localScale.x, 
+                                                               fSRadius * Mathf.Cos( fTheta ) / transform.localScale.y, 
+                                                               fSRadius * Mathf.Sin( fTheta ) * Mathf.Cos( fPhi ) / transform.localScale.z );
+                        yield return ( vTheoreticalVoxelCentre - pVoxel.transform.localPosition ).normalized;
+                        break;
+                }
+                continue;
+            }
+            int w_diff = (int)(pNeighbor.Item3 - pVoxel.W);
+            if ( w_diff != 0 )
+            {
+                switch ( GetGeometry() )
+                {
+                    case Geometry.CARTESIAN:
+                        yield return ( w_diff * Vector3.forward ).normalized;
+                        break;
+
+                    case Geometry.CYLINDRICAL:
+                    {
+                        int w_diff_theta = Mathf.Abs( w_diff ) > 1 ? -w_diff / Mathf.Abs( w_diff ) : w_diff; //only way for >1 is if wraparound
+                        float fRadius = u * fDeltaRadius + fDeltaRadius / 2.0f;
+                        float fTheta = ( w + w_diff_theta ) * fDeltaPhi + fDeltaPhi / 2.0f;
+                        Vector3 vTheoreticalVoxelCentre = new( fRadius * Mathf.Cos( fTheta ) / transform.localScale.x, 
+                                                               pVoxel.transform.localPosition.y, 
+                                                               fRadius * Mathf.Sin( fTheta ) / transform.localScale.z );
+                        yield return ( vTheoreticalVoxelCentre - pVoxel.transform.localPosition ).normalized;
+                        break;
+                    }
+
+                    case Geometry.SPHERICAL:
+                    {
+                        int w_diff_phi = Mathf.Abs( w_diff ) > 1 ? -w_diff / Mathf.Abs( w_diff ) : w_diff; //only way for >1 is if wraparound
+                        float fSRadius = u * fDeltaRadius + fDeltaRadius / 2.0f;
+                        float fTheta = v * fDeltaTheta + fDeltaTheta / 2.0f;
+                        float fPhi = ( w + w_diff_phi ) * fDeltaPhi + fDeltaPhi / 2.0f;
+                        Vector3 vTheoreticalVoxelCentre = new( fSRadius * Mathf.Sin( fTheta ) * Mathf.Sin( fPhi ) / transform.localScale.x, 
+                                                               fSRadius * Mathf.Cos( fTheta ) / transform.localScale.y, 
+                                                               fSRadius * Mathf.Sin( fTheta ) * Mathf.Cos( fPhi ) / transform.localScale.z );
+                        yield return ( vTheoreticalVoxelCentre - pVoxel.transform.localPosition ).normalized;
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            throw new InvalidProgramException( "u_diff, v_diff, and w_diff cannot all be 0 for a nearest neighbor" );
+        }
+    }
     void RemoveMesh()
     {
         if ( TryGetComponent( out MeshFilter m ) )

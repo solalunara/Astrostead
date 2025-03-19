@@ -124,6 +124,7 @@ public class Voxel : MonoBehaviour
 
     List<Vector3> GetExposedNormals()
     {
+        /*
         List<Vector3> pVoxelNorms = m_pvNormals.ToList();
         pVoxelNorms.RemoveAll( v => v == Vector3.zero );
 
@@ -134,9 +135,11 @@ public class Voxel : MonoBehaviour
             if ( pVoxelNorms.Contains( GetNormalClosestToVector( vNorm ) ) ) //closest so that it's an exact match
                 pVoxelNorms.Remove( GetNormalClosestToVector( vNorm ) );
 
-        if ( pVoxelNorms.Count != 1 )
-            return pVoxelNorms;
         return pVoxelNorms;
+        */
+
+        HashSet<Vector3> pExposedNorms = new( m_pOwningGroup.GetExposedNeighborNormals( this ) );
+        return pExposedNorms.ToList();
     }
 
     Mesh GetOrAddMesh()
@@ -398,10 +401,10 @@ public class Voxel : MonoBehaviour
         var piAllTriangles = GetCubeTriangles();
         List<int> piTriangles = new();
         foreach ( Vector3 vNorm in GetExposedNormals() )
-            for ( int i = 0; i < piAllTriangles.Length; i += 6 )
-                if ( Vector3.Dot( GetFaceNormal( i, piAllTriangles ), vNorm ) > 0.97f )
+            for ( int i = 0; i < m_pvNormals.Length; ++i )
+                if ( Vector3.Dot( m_pvNormals[ i ], vNorm ) > 0.97f )
                     for ( int u = 0; u < 6; ++u )
-                        piTriangles.Add( piAllTriangles[ i + u ] );
+                        piTriangles.Add( piAllTriangles[ i * 6 + u ] );
 
 
         if ( piTriangles.Any() )
@@ -507,6 +510,8 @@ public class Voxel : MonoBehaviour
 
     void OnDisable()
     {
+        if ( m_pOwningGroup.m_bNotifyNeighborsOnVoxelDelete )
+            m_pOwningGroup.BreakVoxel( this, true );
         // Unity Docs:
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.
         //    Resources.UnloadUnusedAssets also destroys the mesh but it is usually only called when loading a new level.

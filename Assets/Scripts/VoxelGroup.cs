@@ -240,6 +240,19 @@ public abstract class VoxelGroup : MonoBehaviour
         if ( !bCalledFromVoxelDisable )
             Destroy( pVoxel.gameObject );
     }
+    public void PlaceVoxel( (uint, uint, uint) pVoxelUVW, Voxel pVoxel = null )
+    {
+        (uint u, uint v, uint w) = ((uint)pVoxelUVW.Item1, (uint)pVoxelUVW.Item2, (uint)pVoxelUVW.Item3);
+        if ( m_pVoxels.ContainsKey( (u, v, w) ) )
+            return;
+        
+        if ( !pVoxel )
+            throw new NotImplementedException( "cannot create voxel in PlaceVoxel yet" );
+
+        m_pVoxels.Add( (u, v, w), pVoxel );
+        foreach ( Voxel pNN in GetNearestNeighbors( pVoxel ) )
+            pNN.RefreshTriangles();
+    }
     public IEnumerable<Vector3> GetNearestNeighborNormals( Voxel pVoxel )
     {
         (uint u, uint v, uint w) = pVoxel.UVW;

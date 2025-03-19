@@ -170,7 +170,7 @@ public class Voxelify : VoxelGroup
                             m_pVoxels.Add( (u, v, w), pVoxelObj.AddComponent<Voxel>() );
                             m_pVoxels[ (u, v, w) ].UVW = (u, v, w);
                             m_pVoxels[ (u, v, w) ].OwningGroup = this;
-                            m_pVoxels[ (u, v, w) ].Block = pNorms.Any() ? BlockType.GRASS : BlockType.DIRT;
+                            m_pVoxels[ (u, v, w) ].Block = pNorms.Any() ? BlockType.CHEESE_TOP : BlockType.CHEESE;
                             m_pVoxels[ (u, v, w) ].m_bCalculatingExposedNormals = true;
                             pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
 

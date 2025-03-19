@@ -18,7 +18,9 @@ public enum BlockType
 {
     NONE,
     GRASS,
-    DIRT
+    DIRT,
+    CHEESE_TOP,
+    CHEESE
 }
 
 public class Voxel : MonoBehaviour
@@ -342,6 +344,20 @@ public class Voxel : MonoBehaviour
                 (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DIRT );
                 break;
             }
+            case BlockType.CHEESE_TOP:
+            {
+                (vTopTextureMins, vTopTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.LIGHT_CHEESE );
+                (vSideTextureMins, vSideTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DARK_CHEESE );
+                (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DARK_CHEESE );
+                break;
+            }
+            case BlockType.CHEESE:
+            {
+                (vTopTextureMins, vTopTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DARK_CHEESE );
+                (vSideTextureMins, vSideTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DARK_CHEESE );
+                (vBottomTextureMins, vBottomTextureMaxs) = GetStandardAtlasTextureMinsMaxs( StandardAtlasTextures.DARK_CHEESE );
+                break;
+            }
 
             default:
             {
@@ -510,7 +526,7 @@ public class Voxel : MonoBehaviour
 
     void OnDisable()
     {
-        if ( m_pOwningGroup.m_bNotifyNeighborsOnVoxelDelete )
+        if ( m_pOwningGroup && m_pOwningGroup.m_bNotifyNeighborsOnVoxelDelete )
             m_pOwningGroup.BreakVoxel( this, true );
         // Unity Docs:
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.

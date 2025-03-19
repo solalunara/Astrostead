@@ -16,7 +16,9 @@ public enum StandardAtlasTextures
 {
     NONE,
     GRASS,
-    DIRT
+    DIRT,
+    LIGHT_CHEESE,
+    DARK_CHEESE
 }
 
 public class TextureAtlas : MonoBehaviour

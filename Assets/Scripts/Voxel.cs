@@ -222,6 +222,20 @@ public class Voxel : MonoBehaviour
                     float r = pVerts[ i ][ 0 ] > 0 ? fOuterRadius : fInnerRadius;
                     float t = pVerts[ i ][ 2 ] > 0 ? fMaxTheta : fMinTheta;
 
+                    if ( r == fInnerRadius && fDeltaThetaInner > fDeltaTheta && Mathf.Abs( fInnerRadius ) > 0.01f )
+                    {
+                        int n = Mathf.RoundToInt( fDeltaThetaInner / fDeltaTheta );
+                        long j = Mathf.Abs( Mathf.RoundToInt( t / fDeltaTheta ) ) % n;
+                        if ( j != 0 )
+                        {
+                            float fThetaU = (n-j)*fDeltaTheta + t;
+                            float fThetaL = (-j) *fDeltaTheta + t;
+                            float fPGonX = (float)j/n * Mathf.Cos( fThetaU ) + (1-(float)j/n) * Mathf.Cos( fThetaL );
+                            float fPGonY = (float)j/n * Mathf.Sin( fThetaU ) + (1-(float)j/n) * Mathf.Sin( fThetaL );
+                            r = fInnerRadius * Mathf.Sqrt( fPGonX * fPGonX + fPGonY * fPGonY );
+                        }
+                    }
+
                     pVerts[ i ][ 0 ] = r * Mathf.Cos( t ) - ptLocalOrigin[ 0 ];
                     pVerts[ i ][ 2 ] = r * Mathf.Sin( t ) - ptLocalOrigin[ 2 ];
 
@@ -280,6 +294,20 @@ public class Voxel : MonoBehaviour
                     float r = pVerts[ i ][ 0 ] > 0 ? fOuterRadius : fInnerRadius;
                     float t = pVerts[ i ][ 1 ] > 0 ? fMaxTheta : fMinTheta;
                     float p = pVerts[ i ][ 2 ] > 0 ? fMaxPhi : fMinPhi;
+
+                    if ( r == fInnerRadius && fDeltaPhiInner > fDeltaPhi && Mathf.Abs( fInnerRadius ) > 0.01f )
+                    {
+                        int n = Mathf.RoundToInt( fDeltaPhiInner / fDeltaPhi );
+                        long j = Mathf.Abs( Mathf.RoundToInt( t / fDeltaPhi ) ) % n;
+                        if ( j != 0 )
+                        {
+                            float fPhiU = (n-j)*fDeltaPhi + t;
+                            float fPhiL = (-j) *fDeltaPhi + t;
+                            float fPGonX = (float)j/n * Mathf.Cos( fPhiU ) + (1-(float)j/n) * Mathf.Cos( fPhiL );
+                            float fPGonY = (float)j/n * Mathf.Sin( fPhiU ) + (1-(float)j/n) * Mathf.Sin( fPhiL );
+                            r = fInnerRadius * Mathf.Sqrt( fPGonX * fPGonX + fPGonY * fPGonY );
+                        }
+                    }
 
 
                     pVerts[ i ][ 0 ] = r * Mathf.Sin( t ) * Mathf.Sin( p ) - ptLocalOrigin[ 0 ];

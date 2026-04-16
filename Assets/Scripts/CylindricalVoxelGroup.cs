@@ -18,6 +18,49 @@ public class CylindricalVoxelGroup : VoxelGroup
     {
         // y acts as normal, x->r, z->theta
         float fRadius = vPos.x * m_vVoxelSize.x;
+
+        // this negative sign is neccesary for the handedness of the cartesian to cylindrical conversion
+        // without it, cylindrical voxels would only display faces on their inside
+        float fTheta = -vPos.z * GetDeltaTheta( vPos.x );
+
+        // if fDeltaTheta one ring in is larger than here, instead of doing r sin theta and r cos theta,
+        // we want to lerp between the upper and lower values for theta to avoid gaps in the mesh
+        if ( vPos.x > 0 )
+        {
+            float fDeltaTheta = GetDeltaTheta( vPos.x );
+            float fDeltaThetaBelow = GetDeltaTheta( vPos.x - 1 );
+            if ( fDeltaThetaBelow > fDeltaTheta && vPos.z % ( fDeltaThetaBelow / fDeltaTheta ) != 0 )
+            {
+                Vector3Int vPosBelow = TravelAlongDirection( vPos, Vector3Int.left );
+                Vector3Int vPosBelowIncTheta = TravelAlongDirection( vPosBelow, Vector3Int.forward );
+
+                // then go back to this radius but with the theta values of the ring below
+                Vector3Int vLerpPoint1 = TravelAlongDirection( vPosBelow, Vector3Int.right );
+                Vector3Int vLerpPoint2 = TravelAlongDirection( vPosBelowIncTheta, Vector3Int.right );
+
+                // recursively calling IndexToLocalCoordinate is a bit hacky but it avoids having to duplicate the delta theta logic here
+                // and shouldn't be too expensive since its only called for voxels at the edge of a ring, which should be a small portion of the total voxels
+                Vector3 vPhysicalLerpPoint1 = IndexToLocalCoordinateDirect( vLerpPoint1 );
+                Vector3 vPhysicalLerpPoint2 = IndexToLocalCoordinateDirect( vLerpPoint2 );
+
+                float fLerpFactor = Mathf.Abs( (fTheta % fDeltaThetaBelow) / fDeltaThetaBelow );
+                return Vector3.Lerp( vPhysicalLerpPoint1, vPhysicalLerpPoint2, fLerpFactor );
+            }
+        }
+
+        return new( fRadius * Mathf.Sin( fTheta ), vPos.y * m_vVoxelSize.y, fRadius * Mathf.Cos( fTheta ) );
+    }
+
+    private Vector3 IndexToLocalCoordinateDirect( Vector3Int vPos )
+    {
+        // this method is the same as IndexToLocalCoordinate but without the lerping logic for when delta theta changes between rings
+        // to save time (and prevent a stackoverflow) in the lerping logic
+
+        // y acts as normal, x->r, z->theta
+        float fRadius = vPos.x * m_vVoxelSize.x;
+
+        // this negative sign is neccesary for the handedness of the cartesian to cylindrical conversion
+        // without it, cylindrical voxels would only display faces on their inside
         float fTheta = -vPos.z * GetDeltaTheta( vPos.x );
 
         return new( fRadius * Mathf.Sin( fTheta ), vPos.y * m_vVoxelSize.y, fRadius * Mathf.Cos( fTheta ) );
@@ -91,14 +134,14 @@ public class CylindricalVoxelGroup : VoxelGroup
         else if ( vDir == Vector3Int.left )
         {
             float fDeltaTheta = GetDeltaTheta( vPos.x );
-            int iThetaSteps = Mathf.RoundToInt( fDeltaTheta / GetDeltaTheta( vPos.x - 1 ) );
-            return new( vPos.x - 1, vPos.y, Mathf.RoundToInt( vPos.z / iThetaSteps ) );
+            int iThetaSteps = Mathf.RoundToInt( GetDeltaTheta( vPos.x - 1 ) / fDeltaTheta );
+            return new( vPos.x - 1, vPos.y, vPos.z / iThetaSteps ); // NOTE - truncation - doing left->right will likely not give the same voxel
         }
         else if ( vDir == Vector3Int.right )
         {
             float fDeltaTheta = GetDeltaTheta( vPos.x );
             int iThetaSteps = Mathf.RoundToInt( fDeltaTheta / GetDeltaTheta( vPos.x + 1 ) );
-            return new( vPos.x + 1, vPos.y, Mathf.RoundToInt( vPos.z * iThetaSteps ) );
+            return new( vPos.x + 1, vPos.y, vPos.z * iThetaSteps );
         }
         else
             // increasing r then theta versus increasing theta then r give different results, so we need to specify the direction for disambiguation

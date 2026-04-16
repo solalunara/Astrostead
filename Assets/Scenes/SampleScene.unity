@@ -481,7 +481,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_bNotifyNeighborsOnVoxelDelete: 0
-  m_vVoxelSize: {x: 3, y: 50, z: 3}
+  m_vVoxelSize: {x: 1, y: 5, z: 1}
 --- !u!1 &311303606
 GameObject:
   m_ObjectHideFlags: 0

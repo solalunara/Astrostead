@@ -91,7 +91,7 @@ public class Voxelify : MonoBehaviour
 
                     for ( vPos.z = 0; vPos.z * fDeltaTheta < 2 * Mathf.PI; ++vPos.z )
                     {
-                        for ( vPos.y = 0; vPos.y * fDeltaHeight < fHeight; ++vPos.y )
+                        for ( vPos.y = -Mathf.RoundToInt( fHeight / ( 2 * fDeltaHeight ) ); vPos.y * fDeltaHeight < fHeight / 2; ++vPos.y )
                         {
                             Vector3 vVoxelPos = m_pVoxelGroup.IndexToLocalCoordinate( vPos );
                             for ( int i = 0; i < 3; ++i )

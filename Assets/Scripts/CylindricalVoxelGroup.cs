@@ -79,7 +79,7 @@ public class CylindricalVoxelGroup : VoxelGroup
         // fDeltaTheta is monatonically decreasing, so there can only be one voxel at a lower radius
         // but its theta index will be different based on the ratio of fDeltaTheta
         float fDeltaTheta = GetDeltaTheta( vPos.x );
-        if ( vPos.x > 1 )
+        if ( vPos.x > 0 )
         {
             float fDeltaThetaBelow = GetDeltaTheta( vPos.x - 1 );
             int iDivFactor = Mathf.RoundToInt( fDeltaThetaBelow / fDeltaTheta );

@@ -74,7 +74,6 @@ public class Voxel : MonoBehaviour
     private Vector3[] m_pvVertices = new Vector3[ 0 ];
     private readonly Vector2[][] m_ppvUV = new Vector2[ 8 ][];
     private int[] m_piTriangles = new int[ 0 ];
-    private readonly Vector3[] m_pvNormals = new Vector3[ 6 ];
 
     void Awake()
     {
@@ -160,17 +159,6 @@ public class Voxel : MonoBehaviour
             m.RecalculateNormals();
             m.RecalculateTangents();
             UpdateCollider();
-        }
-
-        int[] piCubeTriangles = GetCubeTriangles();
-        for ( int i = 0; i < 6; ++i )
-        {
-            bool bDegenerate = false;
-            Vector3 vNorm = GetFaceNormal( i * 6, piCubeTriangles );
-            for ( int j = 0; j < i; ++j )
-                if ( Vector3.Dot( m_pvNormals[ j ], vNorm ) > 0.97f )
-                    bDegenerate = true;
-            m_pvNormals[ i ] = bDegenerate ? Vector3.zero : vNorm;
         }
     }
 
@@ -398,19 +386,18 @@ public class Voxel : MonoBehaviour
         Vector3 vTriangleCentre2 = (vPoints[ 3 ] + vPoints[ 4 ] + vPoints[ 5 ]) / 3.0f;
         Vector3 vFaceCentre = (vTriangleCentre1 + vTriangleCentre2) / 2.0f;
 
+        // we want to find the center of all the vertices in pvVertices and subtract that from the face centre
+        // each vertex of the cube is counted 3 times, which isn't ideal but its probably cheaper to average than to use a HashSet
+        Vector3 vVerticesCentre = Vector3.zero;
+        for ( int u = 0; u < pvVertices.Length; ++u )
+            vVerticesCentre += pvVertices[ u ];
+        vVerticesCentre /= pvVertices.Length;
+        vFaceCentre -= vVerticesCentre;
+
         // Sometimes one triangle will be degenerate and the other won't be. Here we know they aren't both degenerate,
         // so we can use the non-degenerate triangle's normal, ensuring it points outward from the centre of the voxel.
         Vector3 vNorm = vTriangleNorm1 != Vector3.zero ? vTriangleNorm1 : vTriangleNorm2;
         return vNorm * Mathf.Sign( Vector3.Dot( vFaceCentre, vNorm ) );
-    }
-
-    public Vector3 GetNormalClosestToVector( Vector3 v )
-    {
-        Vector3 vNorm = Vector3.zero;
-        for ( int i = 0; i < m_pvNormals.Length; ++i )
-            if ( Vector3.Dot( m_pvNormals[ i ], v ) >= Vector3.Dot( vNorm, v ) )
-                vNorm = m_pvNormals[ i ];
-        return vNorm;
     }
 
     void OnDisable()

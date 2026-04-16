@@ -7,7 +7,8 @@ using System.Threading.Tasks;
 using Unity.Jobs;
 using UnityEngine;
 
-public class Voxelify : VoxelGroup
+[RequireComponent(typeof(VoxelGroup))]
+public class Voxelify : MonoBehaviour
 {
     public TextureAtlas VoxelAtlas
     {
@@ -20,122 +21,100 @@ public class Voxelify : VoxelGroup
     } 
     private TextureAtlas m_pVoxelAtlas = null;
     [SerializeField] private AtlasType m_iAtlas;
+
+    private VoxelGroup m_pVoxelGroup;
+
     // Cartesian:    u - x, v - y, w - z
     // Cylindrical:  u - r, v - y, w - theta
     // Spherical:    u - r, v - theta, w - phi 
     void OnEnable()
     {
-        m_pVoxels.Clear();
+        m_pVoxelGroup = GetComponent<VoxelGroup>();
 
         foreach ( var pRenderer in GetComponents<Renderer>() )
             pRenderer.enabled = false;
 
-        List<Voxel> pRenderingInitially = new();
-
-        uint u, v, w;
-        u = v = w = 0;
-        switch ( GetGeometry() )
+        Vector3Int vPos = Vector3Int.zero;
+        switch ( m_pVoxelGroup.GetGeometry() )
         {
             case Geometry.CARTESIAN:
+            {
                 BoxCollider pBoxCollider = GetComponent<BoxCollider>();
                 Vector3 vSize = pBoxCollider.size;
                 for ( int i = 0; i < 3; ++i )
                     vSize[ i ] *= transform.localScale[ i ];
 
-                for ( u = 0; u * m_vVoxelSize.x + ( -vSize.x + m_vVoxelSize.x ) / 2.0f < vSize.x / 2.0f; ++u )
+                Vector3Int vCounts = new( Mathf.RoundToInt( vSize.x / m_pVoxelGroup.VoxelSize.x ), Mathf.RoundToInt( vSize.y / m_pVoxelGroup.VoxelSize.y ), Mathf.RoundToInt( vSize.z / m_pVoxelGroup.VoxelSize.z ) );
+
+                for ( vPos.x = -vCounts.x / 2; vPos.x < vCounts.x / 2; ++vPos.x )
                 {
-                    for ( v = 0; v * m_vVoxelSize.y + ( -vSize.y + m_vVoxelSize.y ) / 2.0f < vSize.y / 2.0f; ++v )
+                    for ( vPos.y = -vCounts.y / 2; vPos.y < vCounts.y / 2; ++vPos.y )
                     {
-                        for ( w = 0; w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f < vSize.z / 2.0f; ++w )
+                        for ( vPos.z = -vCounts.z / 2; vPos.z < vCounts.z / 2; ++vPos.z )
                         {
-                            Vector3 vVoxelCentre = new( u * m_vVoxelSize.x + ( -vSize.x + m_vVoxelSize.x ) / 2.0f, 
-                                                        v * m_vVoxelSize.y + ( -vSize.y + m_vVoxelSize.y ) / 2.0f, 
-                                                        w * m_vVoxelSize.z + ( -vSize.z + m_vVoxelSize.z ) / 2.0f );
-                            List<Vector3> pNorms = new();
-                            if ( u == 0 )
-                                pNorms.Add( -Vector3.right   );
-                            if ( vVoxelCentre.x + m_vVoxelSize.x >= vSize.x / 2.0f )
-                                pNorms.Add(  Vector3.right   );
-                            if ( v == 0 )
-                                pNorms.Add( -Vector3.up      );
-                            if ( vVoxelCentre.y + m_vVoxelSize.y >= vSize.y / 2.0f )
-                                pNorms.Add(  Vector3.up      );
-                            if ( w == 0 )
-                                pNorms.Add( -Vector3.forward );
-                            if ( vVoxelCentre.z + m_vVoxelSize.z >= vSize.z / 2.0f )
-                                pNorms.Add(  Vector3.forward );
+                            Vector3 vVoxelPos = m_pVoxelGroup.IndexToLocalCoordinate( vPos );
 
                             for ( int i = 0; i < 3; ++i )
-                                vVoxelCentre[ i ] /= transform.localScale[ i ];
+                                vVoxelPos[ i ] /= transform.localScale[ i ];
                             GameObject pVoxelObj = new( "voxel" );
-                            pVoxelObj.transform.parent = transform;
-                            pVoxelObj.transform.localPosition = vVoxelCentre;
+                            pVoxelObj.transform.parent = m_pVoxelGroup.transform;
+                            pVoxelObj.transform.localPosition = vVoxelPos;
                             pVoxelObj.transform.localRotation = Quaternion.identity;
-                            m_pVoxels.Add( (u, v, w), pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ (u, v, w) ].UVW = (u, v, w);
-                            m_pVoxels[ (u, v, w) ].OwningGroup = this;
-                            m_pVoxels[ (u, v, w) ].Block = pNorms.Contains( Vector3.up ) ? BlockType.GRASS : BlockType.DIRT;
-                            m_pVoxels[ (u, v, w) ].m_bCalculatingExposedNormals = true;
+                            Voxel pVoxel = pVoxelObj.AddComponent<Voxel>();
+                            pVoxel.Position = vPos;
+                            pVoxel.Block = vPos.y + 1 >= vCounts.y / 2 ? BlockType.GRASS : BlockType.DIRT;
+
+                            // ignore neighbor occlusion check since we don't want to update neighbors every time a voxel
+                            // is added during voxelify - we do our own occlusion check at the very end. Also don't enable
+                            // calculating exposed normals until after the RefreshTriangles() call from adding to group
+                            m_pVoxelGroup.AddVoxelToGroup( pVoxel, bIgnoreOcclusionCheck: true );
+                            pVoxel.m_bCalculatingExposedNormals = true;
 
                             pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
 
-                            if ( pNorms.Any() )
-                                pRenderingInitially.Add( m_pVoxels[ (u, v, w) ] );
                         }
                     }
                 }
                 break;
-            
+            }
             case Geometry.CYLINDRICAL:
+            {
                 CapsuleCollider pCapsuleCollider = GetComponent<CapsuleCollider>();
                 float fHeight = pCapsuleCollider.height * transform.localScale[ 1 ];
-                float fDeltaHeight = m_vVoxelSize[ 1 ];
+                float fDeltaHeight = m_pVoxelGroup.VoxelSize[ 1 ];
                 float fRadiusMax = pCapsuleCollider.radius * transform.localScale[ 0 ];
-                float fDeltaRadius = m_vVoxelSize[ 0 ];
+                float fDeltaRadius = m_pVoxelGroup.VoxelSize[ 0 ];
 
-                for ( u = 0; u * fDeltaRadius + fDeltaRadius / 2.0f < fRadiusMax; ++u )
+                for ( vPos.x = 0; vPos.x * fDeltaRadius < fRadiusMax; ++vPos.x )
                 {
-                    float fRadius = u * fDeltaRadius + fDeltaRadius / 2.0f;
-                    float fDeltaTheta = GetDeltaW( u, 0 );
-                    float fDeltaThetaInner = (int)u - 1 < 0 ? fDeltaTheta : GetDeltaW( u - 1, 0 );
+                    float fDeltaTheta = ((CylindricalVoxelGroup)m_pVoxelGroup).GetDeltaTheta( vPos.x );
 
-                    for ( w = 0; ( w + 0.5f ) * fDeltaTheta < 2 * Mathf.PI; ++w )
+                    for ( vPos.z = 0; vPos.z * fDeltaTheta < 2 * Mathf.PI; ++vPos.z )
                     {
-                        float fTheta = w * fDeltaTheta + fDeltaTheta / 2.0f;
-                        for ( v = 0; v * fDeltaHeight + ( -fHeight + fDeltaHeight ) / 2.0f < fHeight / 2.0f; ++v )
+                        for ( vPos.y = 0; vPos.y * fDeltaHeight < fHeight; ++vPos.y )
                         {
-                            float fY = v * fDeltaHeight + ( -fHeight + fDeltaHeight ) / 2.0f;
-                            Vector3 vVoxelCentre = new( fRadius * Mathf.Cos( fTheta ), fY, fRadius * Mathf.Sin( fTheta ) );
-
-                            List<Vector3> pNorms = new();
-                            if ( fRadius + fDeltaRadius >= fRadiusMax )
-                                pNorms.Add( new Vector3( Mathf.Cos( fTheta ), 0, Mathf.Sin( fTheta ) ) );
-                            if ( v == 0 )
-                                pNorms.Add( -Vector3.up );
-                            if ( fY + fDeltaHeight >= fHeight / 2.0f )
-                                pNorms.Add(  Vector3.up );
-
+                            Vector3 vVoxelPos = m_pVoxelGroup.IndexToLocalCoordinate( vPos );
                             for ( int i = 0; i < 3; ++i )
-                                vVoxelCentre[ i ] /= transform.localScale[ i ];
-                            GameObject pVoxelObj = new( "cvoxel" );
-                            pVoxelObj.transform.parent = transform;
-                            pVoxelObj.transform.localPosition = vVoxelCentre;
-                            pVoxelObj.transform.localRotation = Quaternion.identity;
-                            m_pVoxels.Add( (u, v, w), pVoxelObj.AddComponent<Voxel>() );
-                            m_pVoxels[ (u, v, w) ].UVW = (u, v, w);
-                            m_pVoxels[ (u, v, w) ].OwningGroup = this;
-                            m_pVoxels[ (u, v, w) ].m_bCalculatingExposedNormals = true;
-                            m_pVoxels[ (u, v, w) ].Block = fRadius + fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
-                            pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
+                                vVoxelPos[ i ] /= transform.localScale[ i ];
 
-                            if ( pNorms.Any() )
-                                pRenderingInitially.Add( m_pVoxels[ (u, v, w) ] );
+                            GameObject pVoxelObj = new( "cvoxel" );
+                            pVoxelObj.transform.parent = m_pVoxelGroup.transform;
+                            pVoxelObj.transform.localPosition = vVoxelPos;
+                            pVoxelObj.transform.localRotation = Quaternion.identity;
+                            Voxel pVoxel = pVoxelObj.AddComponent<Voxel>();
+                            pVoxel.Position = vPos;
+                            pVoxel.Block = ( vPos.x + 1 ) * fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
+                            m_pVoxelGroup.AddVoxelToGroup( pVoxel, bIgnoreOcclusionCheck: true );
+
+                            pVoxel.m_bCalculatingExposedNormals = true;
+                            pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                         }
                     }
                 }
 
                 break;
-
+            }
+            /*
             case Geometry.SPHERICAL:
                 SphereCollider pSphereCollider = GetComponent<SphereCollider>();
                 float fSRadiusMax = pSphereCollider.radius * transform.localScale[ 0 ];
@@ -180,9 +159,12 @@ public class Voxelify : VoxelGroup
                     }
                 }
                 break;
+                */
         }
 
-        foreach ( Voxel pRender in pRenderingInitially )
+        foreach ( Voxel pRender in m_pVoxelGroup.GetVoxels() )
             pRender.RefreshTriangles();
+        foreach ( var pCollider in GetComponents<Collider>() )
+            pCollider.enabled = false;
     }
 }

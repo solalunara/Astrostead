@@ -51,5 +51,16 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Astrostead.sln"
+    "dotnet.defaultSolution": "Astrostead.sln",
+    "cSpell.enabledFileTypes": {
+        "csharp": false
+    },
+    "razor.languageServer.useNewFormattingEngine": false,
+    "csharp.format.enable": false,
+    "omnisharp.useEditorFormattingSettings": false,
+    "razor.format.enable": false,
+    "editor.autoIndent": "full",
+    "[csharp]": {
+        "editor.formatOnType": false
+    }
 }

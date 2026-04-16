@@ -1,7 +1,11 @@
+#nullable enable
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
+using System.Net.Http.Headers;
 using Unity.VisualScripting;
 using UnityEngine;
 using static Statics;
@@ -26,7 +30,7 @@ public enum BlockType
 public class Voxel : MonoBehaviour
 {
     // we assume for all voxels that the transform.position will be in the centre of the object
-    public VoxelGroup OwningGroup
+    public VoxelGroup? OwningGroup
     { 
         get => m_pOwningGroup;
         set
@@ -36,64 +40,26 @@ public class Voxel : MonoBehaviour
                 m_pOwningGroup = value;
                 RefreshVertices();
                 RefreshTriangles();
+                RefreshUVs();
             }
         }
     }
+    private VoxelGroup? m_pOwningGroup;
 
-    public float DeltaV => m_fDeltaV;
-    public float DeltaW => m_fDeltaW;
-
-    public (uint, uint, uint) UVW
+    public Vector3Int Position
     {
-        get => new( U, V, W );
+        get => m_vPos;
         set
         {
-            m_u = value.Item1;
-            m_v = value.Item2;
-            m_w = value.Item3;
+            m_vPos = value;
             RefreshVertices();
             RefreshTriangles();
         }
     }
-
-    public uint U
-    { 
-        get => m_u; 
-        set
-        {
-            m_u = value;
-            RefreshVertices();
-            RefreshTriangles();
-        }
-    }
-    public uint V
-    { 
-        get => m_v; 
-        set
-        {
-            m_v = value;
-            RefreshVertices();
-            RefreshTriangles();
-        }
-    }
-    public uint W
-    { 
-        get => m_w; 
-        set
-        {
-            m_w = value;
-            RefreshVertices();
-            RefreshTriangles();
-        }
-    }
-
-    uint m_u;
-    uint m_v;
-    uint m_w;
+    [SerializeField] private Vector3Int m_vPos;
 
     public bool m_bCalculatingExposedNormals = false;
 
-    VoxelGroup m_pOwningGroup;
     public BlockType Block
     {
         get => m_iType;
@@ -103,18 +69,12 @@ public class Voxel : MonoBehaviour
             RefreshUVs();
         }
     }
+    private BlockType m_iType;
 
-    Vector3[] m_pvVertices;
-    readonly Vector2[][] m_ppvUV = new Vector2[ 8 ][];
-    int[] m_piTriangles;
-    BlockType m_iType;
-
-    // for cylindrical and spherical, the delta won't exactly match the size
-    // it starts at pi/2 and halves as neccesary
-    float m_fDeltaV;
-    float m_fDeltaW;
-
-    readonly Vector3[] m_pvNormals = new Vector3[ 6 ];
+    private Vector3[] m_pvVertices = new Vector3[ 0 ];
+    private readonly Vector2[][] m_ppvUV = new Vector2[ 8 ][];
+    private int[] m_piTriangles = new int[ 0 ];
+    private readonly Vector3[] m_pvNormals = new Vector3[ 6 ];
 
     void Awake()
     {
@@ -124,24 +84,15 @@ public class Voxel : MonoBehaviour
         m_piTriangles = new int[ 0 ];
     }
 
-    List<Vector3> GetExposedNormals()
+    List<int> GetExposedFaces()
     {
-        /*
-        List<Vector3> pVoxelNorms = m_pvNormals.ToList();
-        pVoxelNorms.RemoveAll( v => v == Vector3.zero );
-
-        if ( !m_pOwningGroup )
+        if ( m_pOwningGroup == null )
+        {
+            Debug.LogError( "Trying to get exposed faces of a voxel with no owning group - this is probably an error" );
             return new();
+        }
 
-        foreach ( Vector3 vNorm in m_pOwningGroup.GetNearestNeighborNormals( this ) )
-            if ( pVoxelNorms.Contains( GetNormalClosestToVector( vNorm ) ) ) //closest so that it's an exact match
-                pVoxelNorms.Remove( GetNormalClosestToVector( vNorm ) );
-
-        return pVoxelNorms;
-        */
-
-        HashSet<Vector3> pExposedNorms = new( m_pOwningGroup.GetExposedNeighborNormals( this ) );
-        return pExposedNorms.ToList();
+        return m_pOwningGroup.GetExposedFaces( this ).ToList();
     }
 
     Mesh GetOrAddMesh()
@@ -167,162 +118,39 @@ public class Voxel : MonoBehaviour
         }
     }
 
+    IEnumerable<Vector3> GetCornersFromVoxelGroup()
+    {
+        if ( m_pOwningGroup == null )
+        {
+            Debug.LogError( "Trying to get corners of a voxel with no owning group - this is probably an error" );
+            yield break;
+        }
+
+        foreach ( Vector3 vPos in m_pOwningGroup.GetCornersAtIndex( Position ) )
+            yield return vPos;
+    }
+
+    public Vector3 Centre
+    {
+        get
+        {
+            if ( m_vCentre == null )
+                m_vCentre = GetCentrePositionFromCorners( GetCornersFromVoxelGroup() );
+            return (Vector3)m_vCentre;
+        }
+    }
+    private Vector3? m_vCentre;
+
     public void RefreshVertices()
     {
         if ( !m_pOwningGroup )
             return;
 
-        Vector3[] pVerts = GetCubeVertices();
-        Vector3 vSideLength = m_pOwningGroup.VoxelSize;
-        switch ( m_pOwningGroup.GetGeometry() )
-        {
-            case Geometry.CARTESIAN:
-                Vector3 vDirectionalSideLength = Vector3.zero;
-                for ( int i = 0; i < pVerts.Length; ++i )
-                {
-                    for ( int j = 0; j < 3; ++j )
-                        vDirectionalSideLength[ j ] = pVerts[ i ][ j ] > 0 ? vSideLength[ j ] : -vSideLength[ j ];
-                    pVerts[ i ] = vDirectionalSideLength / 2;
-                }
-                m_fDeltaV = vSideLength[ 1 ];
-                m_fDeltaW = vSideLength[ 2 ];
-                break;
-
-            case Geometry.CYLINDRICAL:
-            {
-                Vector3 ptLocalOrigin = transform.localPosition;
-                for ( int i = 0; i < 3; ++i ) 
-                    ptLocalOrigin[ i ] *= transform.parent.localScale[ i ];
-                Vector3 ptLocalOriginProjected = Vector3.ProjectOnPlane( ptLocalOrigin, Vector3.up );
-                float fRadius = ptLocalOriginProjected.magnitude;
-                float fInnerRadius = fRadius - vSideLength[ 0 ] / 2.0f;
-                float fOuterRadius = fRadius + vSideLength[ 0 ] / 2.0f;
-
-                float fTheta = Vector3.SignedAngle( new Vector3( 1, 0, 0 ), ptLocalOriginProjected, -Vector3.up ) * Mathf.Deg2Rad;
-
-                // fOuterRadius * delta theta <= vSideLength[ 1 ]
-                // delta theta should start at 90 deg and half until it gets to the neccesary value
-                float fDeltaTheta = Mathf.PI / 2.0f;
-                float fDeltaThetaInner = Mathf.PI / 2.0f;
-                while ( fOuterRadius * fDeltaTheta > vSideLength[ 2 ] )
-                    fDeltaTheta /= 2.0f;
-                while ( fInnerRadius * fDeltaThetaInner > vSideLength[ 2 ] )
-                    fDeltaThetaInner /= 2.0f;
-
-                // for calculating upper and lower theta, we use the fDeltaTheta using the outer radius
-                // the only thing fDeltaThetaInner being different will change is how far the bisector has to extend
-                // to get to the layer before it
-                // see https://i.imgur.com/ZrEV23Y.png
-                float fMinTheta = Mathf.Floor( fTheta / fDeltaTheta ) * fDeltaTheta;
-                float fMaxTheta = Mathf.Ceil( fTheta / fDeltaTheta ) * fDeltaTheta;
-
-                for ( int i = 0; i < pVerts.Length; ++i )
-                {
-                    // TODO: make r decrease to appropriate value for innerradius when fDeltaThetaInner != fDeltaThetaOuter
-                    float r = pVerts[ i ][ 0 ] > 0 ? fOuterRadius : fInnerRadius;
-                    float t = pVerts[ i ][ 2 ] > 0 ? fMaxTheta : fMinTheta;
-
-                    if ( r == fInnerRadius && fDeltaThetaInner > fDeltaTheta && Mathf.Abs( fInnerRadius ) > 0.01f )
-                    {
-                        int n = Mathf.RoundToInt( fDeltaThetaInner / fDeltaTheta );
-                        long j = Mathf.Abs( Mathf.RoundToInt( t / fDeltaTheta ) ) % n;
-                        if ( j != 0 )
-                        {
-                            float fThetaU = (n-j)*fDeltaTheta + t;
-                            float fThetaL = (-j) *fDeltaTheta + t;
-                            float fPGonX = (float)j/n * Mathf.Cos( fThetaU ) + (1-(float)j/n) * Mathf.Cos( fThetaL );
-                            float fPGonY = (float)j/n * Mathf.Sin( fThetaU ) + (1-(float)j/n) * Mathf.Sin( fThetaL );
-                            r = fInnerRadius * Mathf.Sqrt( fPGonX * fPGonX + fPGonY * fPGonY );
-                        }
-                    }
-
-                    pVerts[ i ][ 0 ] = r * Mathf.Cos( t ) - ptLocalOrigin[ 0 ];
-                    pVerts[ i ][ 2 ] = r * Mathf.Sin( t ) - ptLocalOrigin[ 2 ];
-
-                    pVerts[ i ][ 1 ] = ( pVerts[ i ][ 1 ] > 0 ? vSideLength[ 1 ] : -vSideLength[ 1 ] ) / 2.0f;
-
-                    //pVerts[ i ] = qGeometryRotation * pVerts[ i ];
-                }
-
-                m_fDeltaV = vSideLength[ 1 ];
-                m_fDeltaW = fDeltaTheta;
-                break;
-            }
-
-            case Geometry.SPHERICAL:
-            {
-                Vector3 ptLocalOrigin = transform.localPosition;
-                for ( int i = 0; i < 3; ++i ) 
-                    ptLocalOrigin[ i ] *= transform.parent.localScale[ i ];
-                float fRadius = ptLocalOrigin.magnitude;
-                float fInnerRadius = fRadius - vSideLength[ 0 ] / 2.0f;
-                float fOuterRadius = fRadius + vSideLength[ 0 ] / 2.0f;
-
-                float fPhi = Vector3.SignedAngle( new Vector3( 0, 0, 1 ), new Vector3( ptLocalOrigin.x, 0, ptLocalOrigin.z ), Vector3.up ) * Mathf.Deg2Rad;
-                float fTheta = Vector3.Angle( new Vector3( 0, 1, 0 ), ptLocalOrigin ) * Mathf.Deg2Rad;
-
-                // fOuterRadius * delta theta <= vSideLength[ 1 ]
-                // delta theta should start at 90 deg and half until it gets to the neccesary value
-                float fDeltaTheta = Mathf.PI / 2.0f;
-                float fDeltaThetaInner = Mathf.PI / 2.0f;
-                while ( fOuterRadius * fDeltaTheta > vSideLength[ 1 ] )
-                    fDeltaTheta /= 2.0f;
-                while ( fInnerRadius * fDeltaThetaInner > vSideLength[ 1 ] )
-                    fDeltaThetaInner /= 2.0f;
-
-                float fDeltaPhi = Mathf.PI / 2.0f;
-                float fDeltaPhiInner = Mathf.PI / 2.0f;
-                while ( fOuterRadius * Mathf.Sin( fTheta ) * fDeltaPhi > vSideLength[ 2 ] )
-                    fDeltaPhi /= 2.0f;
-                while ( fInnerRadius * Mathf.Sin( fTheta ) * fDeltaPhiInner > vSideLength[ 2 ] )
-                    fDeltaPhiInner /= 2.0f;
-
-
-                // for calculating upper and lower theta, we use the fDeltaTheta using the outer radius
-                // the only thing fDeltaThetaInner being different will change is how far the bisector has to extend
-                // to get to the layer before it
-                // see https://i.imgur.com/ZrEV23Y.png
-                float fMinTheta = Mathf.Floor( fTheta / fDeltaTheta ) * fDeltaTheta;
-                float fMaxTheta = Mathf.Ceil( fTheta / fDeltaTheta ) * fDeltaTheta;
-
-                float fMinPhi = Mathf.Floor( fPhi / fDeltaPhi ) * fDeltaPhi;
-                float fMaxPhi = Mathf.Ceil( fPhi / fDeltaPhi ) * fDeltaPhi;
-
-                for ( int i = 0; i < pVerts.Length; ++i )
-                {
-                    // TODO: make r decrease to appropriate value for innerradius when fDeltaThetaInner != fDeltaThetaOuter
-                    float r = pVerts[ i ][ 0 ] > 0 ? fOuterRadius : fInnerRadius;
-                    float t = pVerts[ i ][ 1 ] > 0 ? fMaxTheta : fMinTheta;
-                    float p = pVerts[ i ][ 2 ] > 0 ? fMaxPhi : fMinPhi;
-
-                    if ( r == fInnerRadius && fDeltaPhiInner > fDeltaPhi && Mathf.Abs( fInnerRadius ) > 0.01f )
-                    {
-                        int n = Mathf.RoundToInt( fDeltaPhiInner / fDeltaPhi );
-                        long j = Mathf.Abs( Mathf.RoundToInt( t / fDeltaPhi ) ) % n;
-                        if ( j != 0 )
-                        {
-                            float fPhiU = (n-j)*fDeltaPhi + t;
-                            float fPhiL = (-j) *fDeltaPhi + t;
-                            float fPGonX = (float)j/n * Mathf.Cos( fPhiU ) + (1-(float)j/n) * Mathf.Cos( fPhiL );
-                            float fPGonY = (float)j/n * Mathf.Sin( fPhiU ) + (1-(float)j/n) * Mathf.Sin( fPhiL );
-                            r = fInnerRadius * Mathf.Sqrt( fPGonX * fPGonX + fPGonY * fPGonY );
-                        }
-                    }
-
-
-                    pVerts[ i ][ 0 ] = r * Mathf.Sin( t ) * Mathf.Sin( p ) - ptLocalOrigin[ 0 ];
-                    pVerts[ i ][ 1 ] = r * Mathf.Cos( t ) - ptLocalOrigin[ 1 ];
-                    pVerts[ i ][ 2 ] = r * Mathf.Sin( t ) * Mathf.Cos( p ) - ptLocalOrigin[ 2 ];
-                    //pVerts[ i ] = qGeometryRotation * pVerts[ i ];
-                }
-
-                m_fDeltaV = fDeltaTheta;
-                m_fDeltaW = fDeltaPhi;
-                break;
-            }
-        }
-
-        m_pvVertices = pVerts;
+        Vector3[] pvCorners = GetCornersFromVoxelGroup().ToArray();
+        m_vCentre = GetCentrePositionFromCorners( pvCorners );
+        m_pvVertices = VerticesFromCorners( pvCorners ).ToArray();
+        for ( int i = 0; i < m_pvVertices.Length; ++i )
+            m_pvVertices[ i ] -= pvCorners[ 0 ]; // convert to local space for mesh
 
         if ( m_piTriangles.Any() )
         {
@@ -334,11 +162,11 @@ public class Voxel : MonoBehaviour
             UpdateCollider();
         }
 
-        int[] piTriangles = GetCubeTriangles();
-        for ( int i = 0; i < m_pvNormals.Length; ++i )
+        int[] piCubeTriangles = GetCubeTriangles();
+        for ( int i = 0; i < 6; ++i )
         {
             bool bDegenerate = false;
-            Vector3 vNorm = GetFaceNormal( i * 6, piTriangles );
+            Vector3 vNorm = GetFaceNormal( i * 6, piCubeTriangles );
             for ( int j = 0; j < i; ++j )
                 if ( Vector3.Dot( m_pvNormals[ j ], vNorm ) > 0.97f )
                     bDegenerate = true;
@@ -348,6 +176,9 @@ public class Voxel : MonoBehaviour
 
     public void RefreshUVs()
     {
+        if ( m_pOwningGroup == null )
+            return;
+
         Vector3 vUpVector = GetUpVector();
 
         Vector2 vTopTextureMaxs;
@@ -444,11 +275,10 @@ public class Voxel : MonoBehaviour
 
         var piAllTriangles = GetCubeTriangles();
         List<int> piTriangles = new();
-        foreach ( Vector3 vNorm in GetExposedNormals() )
-            for ( int i = 0; i < m_pvNormals.Length; ++i )
-                if ( Vector3.Dot( m_pvNormals[ i ], vNorm ) > 0.97f )
-                    for ( int u = 0; u < 6; ++u )
-                        piTriangles.Add( piAllTriangles[ i * 6 + u ] );
+        List<int> piExposedFaces = GetExposedFaces();
+        foreach ( int iExposedFace in piExposedFaces )
+            for ( int u = 0; u < 6; ++u )
+                piTriangles.Add( piAllTriangles[ iExposedFace * 6 + u ] );
 
 
         if ( piTriangles.Any() )
@@ -466,21 +296,24 @@ public class Voxel : MonoBehaviour
 
     public Vector3 GetUpVector() 
     {
+        if ( m_pOwningGroup == null )
+        {
+            Debug.LogError( "Trying to get up vector of a voxel with no owning group - this is probably an error" );
+            return Vector3.zero;
+        }
+
         return m_pOwningGroup.GetGeometry() switch
         {
             Geometry.CARTESIAN => Vector3.up,
-            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane( transform.localPosition, Vector3.up ).normalized,
-            Geometry.SPHERICAL => transform.localPosition.normalized,
+            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane( Centre, Vector3.up ).normalized,
+            Geometry.SPHERICAL => Centre.normalized,
             _ => Vector3.up,
         };
     }
 
     void UpdateCollider()
     {
-        if ( !m_pOwningGroup )
-            return;
-
-        if ( m_pOwningGroup.GetGeometry() != Geometry.CARTESIAN )
+        if ( m_pOwningGroup == null || m_pOwningGroup.GetGeometry() != Geometry.CARTESIAN )
         {
             if ( m_piTriangles.Any() )
             {
@@ -495,7 +328,7 @@ public class Voxel : MonoBehaviour
             else if ( TryGetComponent( out MeshCollider mc ) )
                 Destroy( mc );
         }
-        else
+        else // box colliders are presumably much cheaper, use them if we can (cartesian geometry)
         {
             if ( m_piTriangles.Any() )
             {
@@ -513,17 +346,34 @@ public class Voxel : MonoBehaviour
         }
     }
 
-    Vector3 GetFaceNormal( int i, int[] piTriangles )
+    public int? GetFaceFacingDirection( Vector3Int vDirection )
     {
+        // m_pvNormals are in order of cube triangles, so compare with cube vertices
+        Vector3[] pvCubeVertices = GetCubeVertices();
+        int[] piCubeTriangles = GetCubeTriangles();
+        for ( int i = 0; i < 6; ++i )
+        {
+            Vector3 vCubeFaceNormal = GetFaceNormal( i * 6, piCubeTriangles, pvCubeVertices ); // approximately -1, 0, or 1 for each element
+            Vector3Int vCubeFaceNormalDirection = new( Mathf.RoundToInt( vCubeFaceNormal.x ), Mathf.RoundToInt( vCubeFaceNormal.y ), Mathf.RoundToInt( vCubeFaceNormal.z ) );
+            if ( vDirection == vCubeFaceNormalDirection )
+                return i;
+        }
+        return null;
+    }
+
+    Vector3 GetFaceNormal( int i, int[] piTriangles, Vector3[]? pvVertices = null )
+    {
+        pvVertices ??= m_pvVertices;
+
         if ( i % 6 != 0 )
             throw new ArgumentException( nameof(i) + " = " + i + ": not a valid face index - must be multiple of 6" );
         Vector3[] vPoints = new Vector3[] {
-            m_pvVertices[ piTriangles[ i ] ],
-            m_pvVertices[ piTriangles[ i + 1 ] ],
-            m_pvVertices[ piTriangles[ i + 2 ] ],
-            m_pvVertices[ piTriangles[ i + 3 ] ],
-            m_pvVertices[ piTriangles[ i + 4 ] ],
-            m_pvVertices[ piTriangles[ i + 5 ] ],
+            pvVertices[ piTriangles[ i ] ],
+            pvVertices[ piTriangles[ i + 1 ] ],
+            pvVertices[ piTriangles[ i + 2 ] ],
+            pvVertices[ piTriangles[ i + 3 ] ],
+            pvVertices[ piTriangles[ i + 4 ] ],
+            pvVertices[ piTriangles[ i + 5 ] ],
         };
         Vector3 A = vPoints[ 1 ] - vPoints[ 0 ];
         Vector3 B = vPoints[ 2 ] - vPoints[ 0 ];
@@ -539,8 +389,19 @@ public class Voxel : MonoBehaviour
         if ( vPoints[ 4 ] == vPoints[ 5 ] )
             vTriangleNorm2 = Vector3.zero;
 
-        // only return zero if both triangle norms are zero
-        return vTriangleNorm1 == Vector3.zero ? -vTriangleNorm2 : vTriangleNorm1;
+        // if both are zero, return zero - this is a degenerate face and we have no normal information to give
+        if ( vTriangleNorm1 == Vector3.zero && vTriangleNorm2 == Vector3.zero )
+            return Vector3.zero;
+
+        // by convention defined here, the normal should always point outward from the centre of the voxel
+        Vector3 vTriangleCentre1 = (vPoints[ 0 ] + vPoints[ 1 ] + vPoints[ 2 ]) / 3.0f;
+        Vector3 vTriangleCentre2 = (vPoints[ 3 ] + vPoints[ 4 ] + vPoints[ 5 ]) / 3.0f;
+        Vector3 vFaceCentre = (vTriangleCentre1 + vTriangleCentre2) / 2.0f;
+
+        // Sometimes one triangle will be degenerate and the other won't be. Here we know they aren't both degenerate,
+        // so we can use the non-degenerate triangle's normal, ensuring it points outward from the centre of the voxel.
+        Vector3 vNorm = vTriangleNorm1 != Vector3.zero ? vTriangleNorm1 : vTriangleNorm2;
+        return vNorm * Mathf.Sign( Vector3.Dot( vFaceCentre, vNorm ) );
     }
 
     public Vector3 GetNormalClosestToVector( Vector3 v )
@@ -554,7 +415,7 @@ public class Voxel : MonoBehaviour
 
     void OnDisable()
     {
-        if ( m_pOwningGroup && m_pOwningGroup.m_bNotifyNeighborsOnVoxelDelete )
+        if ( m_pOwningGroup != null && m_pOwningGroup.m_bNotifyNeighborsOnVoxelDelete )
             m_pOwningGroup.BreakVoxel( this, true );
         // Unity Docs:
         //    It is your responsibility to destroy the automatically instantiated mesh when the game object is being destroyed.

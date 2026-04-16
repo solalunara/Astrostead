@@ -424,5 +424,11 @@ public class PlayerBodyController : MonoBehaviour
 
         //transform.rotation = Quaternion.Slerp( transform.rotation, BodyGoal.transform.rotation, .2f );
         //Head.transform.localRotation = Quaternion.Slerp( Head.transform.localRotation, LookGoal.transform.rotation, .2f );
+
+        // new unity versions don't have a collision exit fire for physics collisionevent
+        // but since it fires before fixedupdate, lets just clear it at the end here
+        m_vGroundCollisionPt = Vector3.zero;
+        m_vGroundNormal = Vector3.zero;
+        m_pGroundEntity = null;
     }
 }

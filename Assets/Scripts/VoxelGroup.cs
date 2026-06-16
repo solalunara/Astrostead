@@ -12,129 +12,6 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using static Statics;
 
-/*
-public class SphericalVoxelGroup : VoxelGroup
-{
-    public override float GetDeltaV(int u)
-    {
-        float fSDeltaRadius = GetDeltaU();
-        float fSRadius = u * fSDeltaRadius + fSDeltaRadius / 2.0f;
-        float fOuterRadius = fSRadius + fSDeltaRadius / 2.0f;
-        float fDeltaTheta = Mathf.PI / 2.0f;
-        while ( fOuterRadius * fDeltaTheta > m_vVoxelSize[ 1 ] )
-            fDeltaTheta /= 2.0f;
-        return fDeltaTheta;
-    }
-
-    public override float GetDeltaW(int u, int v)
-    {
-        float fSDeltaRadius = GetDeltaU();
-        float fSRadius = u * fSDeltaRadius + fSDeltaRadius / 2.0f;
-        float fOuterRadius = fSRadius + fSDeltaRadius / 2.0f;
-
-        float fDeltaTheta = GetDeltaV( u );
-        float fTheta = v * fDeltaTheta + fDeltaTheta / 2.0f;
-
-        float fDeltaPhi = Mathf.PI / 2.0f;
-        while ( fOuterRadius * Mathf.Sin( fTheta ) * fDeltaPhi > m_vVoxelSize[ 2 ] )
-            fDeltaPhi /= 2.0f;
-
-        return fDeltaPhi;
-    }
-
-    public override Geometry GetGeometry() { return Geometry.SPHERICAL; }
-
-    public override Voxel GetVoxel(int u, int v, int w)
-    {
-        if ( u < 0 ) return null;
-        if ( !m_pVoxels.ContainsKey( (uint)u ) ) return null;
-
-        var double_buffer = m_pVoxels[(uint)u] ?? throw new ArgumentNullException("the double buffer should not be null for a valid radius");
-        var buffer = double_buffer[v] ?? throw new ArgumentNullException("the buffer should not be null for a valid radius and theta");
-
-        return buffer[ w ];
-    }
-
-    public override IEnumerable<Voxel> GetVoxels()
-    {
-        foreach ( var keyValuePair in m_pVoxels.AsEnumerable() )
-        {
-            var double_buffer = keyValuePair.Value;
-            foreach ( var buffer in double_buffer )
-                foreach ( var voxel in buffer )
-                    yield return voxel;
-        }
-    }
-
-    /// protected elements ///
-
-    // r -> voxels( theta( phi ) )
-    protected readonly Dictionary<uint, CircularBuffer<CircularBuffer<Voxel>>> m_pVoxels = new();
-}
-
-// Ordering: R, Z, Theta
-public class CylindricalVoxelGroup : VoxelGroup
-{
-    public override Geometry GetGeometry()
-    {
-        return Geometry.CYLINDRICAL;
-    }
-
-    public override Voxel GetVoxel(int u, int v, int w)
-    {
-        if ( u < 0 ) return null;
-
-        var key = ((uint)u, w);
-        if ( !m_pVoxels.ContainsKey( key ) ) return null;
-
-        var buffer = m_pVoxels[((uint)u, w)] ?? throw new NullReferenceException("buffer should not be null");
-        return buffer[ v ];
-    }
-
-    public override IEnumerable<Voxel> GetVoxels()
-    {
-        foreach ( var keyValuePair in m_pVoxels.AsEnumerable() )
-        {
-            var buffer = keyValuePair.Value;
-            foreach ( var voxel in buffer )
-                yield return voxel;
-        }
-    }
-
-    protected override IEnumerable<triple_int> GetNeighbors(triple_int uvw, bool bAir)
-    {
-        (int u, int v, int w) = uvw;
-
-        // easy neighbors at +/- z and +/- theta
-        var adjacent_indices = new (int u, int v, int w)[] { (u, v, w-1), (u, v, w+1), (u, v-1, w), (u, v+1, w) };
-        foreach ( var adjacent_index in adjacent_indices )
-        {
-            Voxel a = GetVoxel( adjacent_index.u, adjacent_index.v, adjacent_index.w );
-            if ( a == null == bAir )
-                yield return new triple_int( adjacent_index );
-        }
-
-        // if r != 0, easy neighbor at -r
-        if ( u > 0 )
-        {
-            Voxel a = GetVoxel( u-1, v, w );
-            if ( a == null == bAir )
-                yield return new triple_int( u-1, v, w );
-        }
-        else if ( u < 0 )
-            throw new ArgumentOutOfRangeException( $"Value of u {u} invalid for cylindrical voxel group (cannot be < 0)" );
-
-        // check if we have a buffer for r+1, z so we can check its count vs our count
-        if ( !m_pVoxels.ContainsKey( ((uint)u, w) ) )
-    }
-
-    /// protected elements ///
-
-    // r, z -> voxels( theta )
-    protected readonly Dictionary<(uint, int), CircularBuffer<Voxel>> m_pVoxels = new();
-}*/
-
-
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 public abstract class VoxelGroup : MonoBehaviour
@@ -199,23 +76,23 @@ public abstract class VoxelGroup : MonoBehaviour
         GetComponent<MeshRenderer>().enabled = false;
     }
 
-    public IEnumerable<Voxel> GetVoxelNeighbors( Voxel pVoxel )
+    public IEnumerable<Voxel> GetVoxelNeighbors( Voxel pVoxel ) => GetVoxelNeighbors( pVoxel.Position );
+    public IEnumerable<Voxel> GetVoxelNeighbors( Vector3Int vPos )
     {
-        foreach ( (Vector3Int vNeighborPos, Vector3Int vNeighborDir) in GetNeighbors( pVoxel.Position ) )
+        foreach ( (Vector3Int vNeighborPos, Vector3Int vNeighborDir) in GetNeighbors( vPos ) )
         {
+            if ( !m_pVoxels.ContainsKey( vNeighborPos ) )
+                continue; //neighbor not in geometry
+
             Voxel? pNeighborVoxel = GetVoxel( vNeighborPos );
             if ( pNeighborVoxel != null )
                 yield return pNeighborVoxel;
-        }
-
-    }
-    public IEnumerable<Vector3Int> GetExposedNeighbors( Voxel pVoxel ) 
-    {
-        foreach ( (Vector3Int vNeighborPos, Vector3Int vNeighborDir) in GetNeighbors( pVoxel.Position ) )
-        {
-            Voxel? pNeighborVoxel = GetVoxel( vNeighborPos );
-            if ( pNeighborVoxel == null )
-                yield return vNeighborPos;
+            else
+            {
+                Voxel? pRealNeighbor = GetAssociatedRealBlock( vNeighborPos );
+                if ( pRealNeighbor != null )
+                    yield return pRealNeighbor;
+            }
         }
     }
 
@@ -225,15 +102,29 @@ public abstract class VoxelGroup : MonoBehaviour
     /// </summary>
     /// <param name="vPos">The u, v, and w coordinates as a Vector3Int of the item to search the neighbors of</param>
     protected abstract IEnumerable<(Vector3Int, Vector3Int)> GetNeighbors( Vector3Int vPos );
+    protected virtual IEnumerable<Vector3Int> GetAssociatedGhostBlocks( Voxel pVoxel ) => Enumerable.Empty<Vector3Int>();
+    protected virtual Voxel? GetAssociatedRealBlock( Vector3Int vGhostBlockPos ) => null;
     public void BreakVoxel( Voxel pVoxel, bool bCalledFromVoxelDisable = false )
     {
         Vector3Int vPos = pVoxel.Position;
         if ( !m_pVoxels.ContainsKey( vPos ) || m_pVoxels[ vPos ] != pVoxel )
             return;
+
+        foreach ( Vector3Int vGhostBlockPos in GetAssociatedGhostBlocks( pVoxel ) )
+            m_pVoxels.Remove( vGhostBlockPos );
         
         m_pVoxels.Remove( vPos );
+
+        HashSet<Voxel> pVoxelsNeedingUpdating = new();
         foreach ( Voxel pNN in GetVoxelNeighbors( pVoxel ) )
-            pNN.RefreshTriangles(); // re-check exposed surfaces and un-occlude if we should
+            pVoxelsNeedingUpdating.Add( pNN );
+
+        foreach ( Vector3Int vGhostBlockPos in GetAssociatedGhostBlocks( pVoxel ) )
+            foreach ( Voxel pNN in GetVoxelNeighbors( vGhostBlockPos ) )
+                pVoxelsNeedingUpdating.Add( pNN );
+
+        foreach ( Voxel pNN in pVoxelsNeedingUpdating )
+            pNN.RefreshTriangles();
 
         if ( !bCalledFromVoxelDisable )
             Destroy( pVoxel.gameObject );
@@ -251,10 +142,17 @@ public abstract class VoxelGroup : MonoBehaviour
 
         pVoxel.OwningGroup = this;
     }
-
-    public IEnumerable<Vector3> GetCornersAtIndex( Vector3Int vPos )
+    public void AddGhostVoxel( Vector3Int vPosition )
     {
-        // order: center, forward, right, up, forward+right, forward+up, right+up, forward+right+up
+        if ( m_pVoxels.ContainsKey( vPosition ) )
+            throw new ArgumentException( $"Cannot create voxel at already filled position {vPosition.x}, {vPosition.y}, {vPosition.z}", nameof( vPosition ) );
+
+        m_pVoxels.Add( vPosition, null );
+    }
+
+    public virtual IEnumerable<Vector3> GetCornersAtIndex( Vector3Int vPos )
+    {
+        // order: center, forward, right, up, forward+right, forward+up, up+right, forward+up+right
         // TravelAlongDirection is neccesary for non-cartesian geometries
         //     e.g. in cylindrical, [ i_r=0, i_y, i_theta=4 ] + [ 1, 0, 0 ] is not neccesarily [ i_r=1, i_y, i_theta=4 ], 
         //          it could be [ i_r=1, i_y, i_theta=8 ], or any multiple of 2 times the original i_theta depending on how many theta divisions we have at that radius
@@ -264,8 +162,8 @@ public abstract class VoxelGroup : MonoBehaviour
         yield return IndexToLocalCoordinate( TravelAlongDirection( vPos, Vector3Int.up ) );
         yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.forward ), Vector3Int.right ) );
         yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.forward ), Vector3Int.up ) );
-        yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.right ), Vector3Int.up ) );
-        yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.forward ), Vector3Int.right ), Vector3Int.up ) );
+        yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.up ), Vector3Int.right ) );
+        yield return IndexToLocalCoordinate( TravelAlongDirection( TravelAlongDirection( TravelAlongDirection( vPos, Vector3Int.forward ), Vector3Int.up ), Vector3Int.right ) );
     }
 
     public IEnumerable<int> GetExposedFaces( Voxel pVoxel )

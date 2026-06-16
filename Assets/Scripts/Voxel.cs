@@ -90,8 +90,8 @@ public class Voxel : MonoBehaviour
             Debug.LogError( "Trying to get exposed faces of a voxel with no owning group - this is probably an error" );
             return new();
         }
-
-        return m_pOwningGroup.GetExposedFaces( this ).ToList();
+        HashSet<int> hsExposedFaces = new( m_pOwningGroup.GetExposedFaces( this ) );
+        return hsExposedFaces.ToList();
     }
 
     Mesh GetOrAddMesh()

@@ -23,7 +23,7 @@ public abstract class VoxelGroup : MonoBehaviour
     // Cylindrical:  u - r, v - y, w - theta
     // Spherical:    u - r, v - theta, w - phi 
 
-    public Voxel? GetVoxel( Vector3Int vPos ) 
+    public IVoxelBase? GetVoxel( Vector3Int vPos ) 
     {
         if ( m_pVoxels.ContainsKey( vPos ) )
             return m_pVoxels[ vPos ];
@@ -31,9 +31,9 @@ public abstract class VoxelGroup : MonoBehaviour
             return null;
     }
 
-    public IEnumerable<Voxel> GetVoxels() 
+    public IEnumerable<IVoxelBase> GetVoxels() 
     {
-        foreach ( Voxel pVoxel in m_pVoxels.Values )
+        foreach ( IVoxelBase pVoxel in m_pVoxels.Values )
             yield return pVoxel;
     }
 
@@ -46,13 +46,14 @@ public abstract class VoxelGroup : MonoBehaviour
     public void CombineMeshes()
     {
         List<CombineInstance> pCombine = new();
-        foreach ( Voxel pVoxel in GetVoxels() )
+        foreach ( IVoxelBase pVoxel in GetVoxels() )
         {
-            if ( pVoxel.TryGetComponent( out MeshFilter mf ) && mf.sharedMesh )
+            Mesh m = pVoxel.GetOrAddMesh();
+            if ( m )
                 pCombine.Add( new() 
                 {
-                    mesh = mf.sharedMesh,
-                    transform = Matrix4x4.TRS( pVoxel.transform.localPosition, pVoxel.transform.localRotation, pVoxel.transform.localScale ),
+                    mesh = m,
+                    transform = Matrix4x4.TRS( pVoxel.GetTransform().localPosition, pVoxel.GetTransform().localRotation, pVoxel.GetTransform().localScale ),
                 } );
         }
         Mesh mesh = new()
@@ -64,35 +65,30 @@ public abstract class VoxelGroup : MonoBehaviour
         GetComponent<MeshRenderer>().enabled = true;
 
         // disabling voxel deletes all render data, thus do it only once we've combined the meshes
-        foreach ( Voxel pVoxel in GetVoxels() )
-            pVoxel.gameObject.SetActive( false );
+        foreach ( IVoxelBase pVoxel in GetVoxels() )
+            pVoxel.SetActive( false );
     }
 
     public void DeCombine()
     {
-        foreach ( Voxel pVoxel in GetVoxels() )
-            pVoxel.gameObject.SetActive( true );
+        foreach ( IVoxelBase pVoxel in GetVoxels() )
+            pVoxel.SetActive( true );
         RemoveMesh();
         GetComponent<MeshRenderer>().enabled = false;
     }
 
-    public IEnumerable<Voxel> GetVoxelNeighbors( Voxel pVoxel ) => GetVoxelNeighbors( pVoxel.Position );
-    public IEnumerable<Voxel> GetVoxelNeighbors( Vector3Int vPos )
+    public IEnumerable<IVoxelBase> GetVoxelNeighbors( IVoxelBase pVoxel ) => GetVoxelNeighbors( pVoxel.Position );
+    public IEnumerable<IVoxelBase> GetVoxelNeighbors( Vector3Int vPos )
     {
         foreach ( (Vector3Int vNeighborPos, Vector3Int vNeighborDir) in GetNeighbors( vPos ) )
         {
             if ( !m_pVoxels.ContainsKey( vNeighborPos ) )
                 continue; //neighbor not in geometry
 
-            Voxel? pNeighborVoxel = GetVoxel( vNeighborPos );
+            IVoxelBase? pNeighborVoxel = GetVoxel( vNeighborPos );
+            Debug.Assert( pNeighborVoxel is not GhostVoxel ); //assert not ghost voxel
             if ( pNeighborVoxel != null )
                 yield return pNeighborVoxel;
-            else
-            {
-                Voxel? pRealNeighbor = GetAssociatedRealBlock( vNeighborPos );
-                if ( pRealNeighbor != null )
-                    yield return pRealNeighbor;
-            }
         }
     }
 
@@ -102,34 +98,33 @@ public abstract class VoxelGroup : MonoBehaviour
     /// </summary>
     /// <param name="vPos">The u, v, and w coordinates as a Vector3Int of the item to search the neighbors of</param>
     protected abstract IEnumerable<(Vector3Int, Vector3Int)> GetNeighbors( Vector3Int vPos );
-    protected virtual IEnumerable<Vector3Int> GetAssociatedGhostBlocks( Voxel pVoxel ) => Enumerable.Empty<Vector3Int>();
-    protected virtual Voxel? GetAssociatedRealBlock( Vector3Int vGhostBlockPos ) => null;
-    public void BreakVoxel( Voxel pVoxel, bool bCalledFromVoxelDisable = false )
+    protected virtual IEnumerable<Vector3Int> GetAssociatedGhostBlocks( Vector3Int pVoxel )
+    {
+        yield break;
+    }
+    protected virtual Vector3Int RealBlock( Vector3Int vBlockPos ) => vBlockPos;
+    protected bool IsRealBlock( Vector3Int vPos ) => RealBlock( vPos ) == vPos;
+
+    public virtual void BreakVoxel( Voxel pVoxel, bool bCalledFromVoxelDisable = false )
     {
         Vector3Int vPos = pVoxel.Position;
-        if ( !m_pVoxels.ContainsKey( vPos ) || m_pVoxels[ vPos ] != pVoxel )
+
+        if ( !m_pVoxels.ContainsKey( vPos ) || m_pVoxels[ vPos ] != (IVoxelBase)pVoxel )
             return;
 
-        foreach ( Vector3Int vGhostBlockPos in GetAssociatedGhostBlocks( pVoxel ) )
-            m_pVoxels.Remove( vGhostBlockPos );
+        foreach ( Vector3Int vGhostBlockPositions in GetAssociatedGhostBlocks( pVoxel.Position ) )
+            if ( m_pVoxels.ContainsKey( vGhostBlockPositions ) )
+                m_pVoxels.Remove( vGhostBlockPositions );
         
         m_pVoxels.Remove( vPos );
 
-        HashSet<Voxel> pVoxelsNeedingUpdating = new();
-        foreach ( Voxel pNN in GetVoxelNeighbors( pVoxel ) )
-            pVoxelsNeedingUpdating.Add( pNN );
-
-        foreach ( Vector3Int vGhostBlockPos in GetAssociatedGhostBlocks( pVoxel ) )
-            foreach ( Voxel pNN in GetVoxelNeighbors( vGhostBlockPos ) )
-                pVoxelsNeedingUpdating.Add( pNN );
-
-        foreach ( Voxel pNN in pVoxelsNeedingUpdating )
+        foreach ( IVoxelBase pNN in GetVoxelNeighbors( pVoxel ) )
             pNN.RefreshTriangles();
 
         if ( !bCalledFromVoxelDisable )
             Destroy( pVoxel.gameObject );
     }
-    public void AddVoxelToGroup( Voxel pVoxel, bool bIgnoreOcclusionCheck = false )
+    public void AddVoxelToGroup( IVoxelBase pVoxel, bool bIgnoreOcclusionCheck = false )
     {
         if ( m_pVoxels.ContainsKey( pVoxel.Position ) )
             throw new ArgumentException( $"Cannot create voxel at already filled position {pVoxel.Position.x}, {pVoxel.Position.y}, {pVoxel.Position.z}", nameof( pVoxel ) );
@@ -137,7 +132,7 @@ public abstract class VoxelGroup : MonoBehaviour
         m_pVoxels.Add( pVoxel.Position, pVoxel );
 
         if ( !bIgnoreOcclusionCheck )
-            foreach ( Voxel pNeighbors in GetVoxelNeighbors( pVoxel ) )
+            foreach ( IVoxelBase pNeighbors in GetVoxelNeighbors( pVoxel ) )
                 pNeighbors.RefreshTriangles(); // re-check exposed surfaces and occlude if we should
 
         pVoxel.OwningGroup = this;
@@ -146,8 +141,13 @@ public abstract class VoxelGroup : MonoBehaviour
     {
         if ( m_pVoxels.ContainsKey( vPosition ) )
             throw new ArgumentException( $"Cannot create voxel at already filled position {vPosition.x}, {vPosition.y}, {vPosition.z}", nameof( vPosition ) );
+        
+        if ( IsRealBlock( vPosition ) )
+            throw new ArgumentException( $"Cannot create ghost voxel at non-ghost position {vPosition.x}, {vPosition.y}, {vPosition.z}", nameof( vPosition ) );
 
-        m_pVoxels.Add( vPosition, null );
+        IVoxelBase? pRealVoxel = GetVoxel(RealBlock(vPosition)) ?? throw new ArgumentException( $"Can only create ghost voxel when real block already exists. Ghost position {vPosition.x}, {vPosition.y}, {vPosition.z}", nameof(vPosition) );
+        Debug.Assert( pRealVoxel is Voxel );
+        m_pVoxels.Add( vPosition, new GhostVoxel( (Voxel)pRealVoxel ) );
     }
 
     public virtual IEnumerable<Vector3> GetCornersAtIndex( Vector3Int vPos )
@@ -203,5 +203,5 @@ public abstract class VoxelGroup : MonoBehaviour
         //RemoveMesh();
     }
 
-    protected Dictionary<Vector3Int, Voxel> m_pVoxels = new();
+    protected Dictionary<Vector3Int, IVoxelBase> m_pVoxels = new();
 }

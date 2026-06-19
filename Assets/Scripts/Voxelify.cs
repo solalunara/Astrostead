@@ -68,7 +68,7 @@ public class Voxelify : MonoBehaviour
                             // is added during voxelify - we do our own occlusion check at the very end. Also don't enable
                             // calculating exposed normals until after the RefreshTriangles() call from adding to group
                             m_pVoxelGroup.AddVoxelToGroup( pVoxel, bIgnoreOcclusionCheck: true );
-                            pVoxel.m_bCalculatingExposedNormals = true;
+                            pVoxel.CalculatingExposedNormals = true;
 
                             pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
 
@@ -106,7 +106,7 @@ public class Voxelify : MonoBehaviour
                             pVoxel.Block = ( vPos.x + 1 ) * fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
                             m_pVoxelGroup.AddVoxelToGroup( pVoxel, bIgnoreOcclusionCheck: true );
 
-                            pVoxel.m_bCalculatingExposedNormals = true;
+                            pVoxel.CalculatingExposedNormals = true;
                             pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                         }
                     }
@@ -153,7 +153,7 @@ public class Voxelify : MonoBehaviour
                             pVoxel.Block = ( vPos.x + 1 ) * fDeltaRadius >= fRadiusMax ? BlockType.GRASS : BlockType.DIRT;
                             m_pVoxelGroup.AddVoxelToGroup( pVoxel, bIgnoreOcclusionCheck: true );
 
-                            pVoxel.m_bCalculatingExposedNormals = true;
+                            pVoxel.CalculatingExposedNormals = true;
                             pVoxelObj.AddComponent<MeshRenderer>().material = VoxelAtlas.VoxelMaterial;
                             if ( bGhostBlock )
                                 pVoxelObj.SetActive( false );
@@ -165,9 +165,8 @@ public class Voxelify : MonoBehaviour
             }
         }
 
-        foreach ( Voxel pRender in m_pVoxelGroup.GetVoxels() )
-            if ( pRender )
-                pRender.RefreshTriangles();
+        foreach ( IVoxelBase pRender in m_pVoxelGroup.GetVoxels() )
+            pRender.RefreshTriangles();
         foreach ( var pCollider in GetComponents<Collider>() )
             pCollider.enabled = false;
     }

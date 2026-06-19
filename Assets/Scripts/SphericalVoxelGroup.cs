@@ -1,3 +1,5 @@
+#define DEBUG
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -9,7 +11,9 @@ using Unity.Jobs;
 using Unity.VisualScripting.Dependencies.Sqlite;
 using UnityEngine;
 using UnityEngine.UIElements;
+using UnityEngine.VFX;
 using static Statics;
+
 
 public class SphericalVoxelGroup : VoxelGroup
 {
@@ -129,7 +133,23 @@ public class SphericalVoxelGroup : VoxelGroup
             throw new ArgumentException( "Invalid direction for TravelAlongDirection in SphericalVoxelGroup. Direction must be along one of the three axes." );
     }
 
-    protected override IEnumerable<(Vector3Int, Vector3Int)> GetNeighbors(Vector3Int vPos)
+    protected override IEnumerable<(Vector3Int, Vector3Int)> GetNeighbors( Vector3Int vPos )
+    {
+        HashSet<(Vector3Int, Vector3Int)> pValues = new( GetNonuniqueNeighbors( vPos ) );
+
+#if DEBUG
+        // Debug code to check each voxel really is only included once
+        List<Vector3Int> pVoxelPositionList = new();
+        foreach ( (Vector3Int vVoxel, Vector3Int VDir) in pValues )
+        {
+            Debug.Assert( !pVoxelPositionList.Contains( vVoxel ) );
+            pVoxelPositionList.Add( vVoxel );
+        }
+#endif
+
+        return pValues;
+    }
+    protected IEnumerable<(Vector3Int, Vector3Int)> GetNonuniqueNeighbors(Vector3Int vPos)
     {
         // For any direction where there is only one voxel in that direction (changes in phi, going down in radius)
         // we can use TravelAlongDirection to get the neighbor
@@ -140,7 +160,7 @@ public class SphericalVoxelGroup : VoxelGroup
         };
 
         foreach ( Vector3Int vDir in pvTrivialDirections )
-            yield return (TravelAlongDirection( vPos, vDir ), vDir);
+            yield return (RealBlock(TravelAlongDirection( vPos, vDir )), vDir);
 
         // For the other directions, we need to account for multiple possible neighbors
         // and the fact that the number of neighbors can change based on the position
@@ -166,13 +186,13 @@ public class SphericalVoxelGroup : VoxelGroup
                 int iPhiDivFactor = Mathf.RoundToInt( fDeltaPhiAbove / fDeltaPhi );
                 int iPhiIndex = vPos.z / iPhiDivFactor; // truncation!
                 Vector3Int vNeighborPos = new( vPos.x + 1, vPos.y * iMultFactor + i, iPhiIndex );
-                yield return (vNeighborPos, Vector3Int.right);
+                yield return (RealBlock( vNeighborPos ), Vector3Int.right);
                 continue;
             }
             for ( int j = 0; j < iPhiMultFactor; ++j )
             {
                 Vector3Int vNeighborPos = new( vPos.x + 1, vPos.y * iMultFactor + i, vPos.z * iPhiMultFactor + j );
-                yield return (vNeighborPos, Vector3Int.right);
+                yield return (RealBlock( vNeighborPos ), Vector3Int.right);
             }
         }
 
@@ -188,14 +208,14 @@ public class SphericalVoxelGroup : VoxelGroup
                 Debug.Assert( iPhiDivFactor >= 1 );
                 int iPhiIndex = vPos.z / iPhiDivFactor; // truncation!
                 Vector3Int vNeighborPos = new( vPos.x, vPos.y - 1, iPhiIndex );
-                yield return (vNeighborPos, Vector3Int.down);
+                yield return (RealBlock( vNeighborPos ), Vector3Int.down);
             }
             else
             {
                 for ( int i = 0; i < Mathf.RoundToInt( fDeltaPhi / fDeltaPhiDecTheta ); ++i )
                 {
                     Vector3Int vNeighborPos = new( vPos.x, vPos.y - 1, vPos.z * Mathf.RoundToInt( fDeltaPhi / fDeltaPhiDecTheta ) + i );
-                    yield return (vNeighborPos, Vector3Int.down);
+                    yield return (RealBlock( vNeighborPos ), Vector3Int.down);
                 }
             }
         }
@@ -208,23 +228,43 @@ public class SphericalVoxelGroup : VoxelGroup
                 Debug.Assert( iPhiDivFactor >= 1 );
                 int iPhiIndex = vPos.z / iPhiDivFactor; // truncation!
                 Vector3Int vNeighborPos = new( vPos.x, vPos.y + 1, iPhiIndex );
-                yield return (vNeighborPos, Vector3Int.up);
+                yield return (RealBlock( vNeighborPos ), Vector3Int.up);
             }
             else
             {
                 for ( int i = 0; i < Mathf.RoundToInt( fDeltaPhi / fDeltaPhiIncTheta ); ++i )
                 {
                     Vector3Int vNeighborPos = new( vPos.x, vPos.y + 1, vPos.z * Mathf.RoundToInt( fDeltaPhi / fDeltaPhiIncTheta ) + i );
-                    yield return (vNeighborPos, Vector3Int.up);
+                    yield return (RealBlock( vNeighborPos ), Vector3Int.up);
                 }
             }
         }
+
+        // if we are not a ghost block, check for associated ghost blocks and return for them
+        if ( IsRealBlock( vPos ) )
+        {
+            foreach ( Vector3Int vGhostBlockPos in GetAssociatedGhostBlocks( vPos ) )
+                foreach ( (Vector3Int vNeighbor, Vector3Int vDir) in GetNeighbors( vGhostBlockPos ) )
+                    yield return (vNeighbor, vDir);
+        }
     }
 
-    protected override IEnumerable<Vector3Int> GetAssociatedGhostBlocks( Voxel pVoxel )
+    protected override Vector3Int RealBlock( Vector3Int vBlockPos )
     {
-        Vector3Int vPos = pVoxel.Position;
+        float fDeltaPhiL = GetDeltaPhi( vBlockPos.x, vBlockPos.y );
+        float fDeltaPhiH = GetDeltaPhi( vBlockPos.x, vBlockPos.y + 1 );
+        int iPhiHFactor = Mathf.RoundToInt( Mathf.Max( 1, fDeltaPhiH / fDeltaPhiL ) );
 
+        if ( iPhiHFactor == 1 )
+            return vBlockPos; // not a ghost block
+
+        Vector3Int vPos = new( vBlockPos.x, vBlockPos.y, vBlockPos.z / iPhiHFactor * iPhiHFactor );
+
+        return vPos;
+    }
+
+    protected override IEnumerable<Vector3Int> GetAssociatedGhostBlocks( Vector3Int vPos )
+    {
         float fDeltaPhiL = GetDeltaPhi( vPos.x, vPos.y );
         float fDeltaPhiH = GetDeltaPhi( vPos.x, vPos.y + 1 );
         int iPhiHFactor = Mathf.RoundToInt( Mathf.Max( 1, fDeltaPhiH / fDeltaPhiL ) );
@@ -235,23 +275,6 @@ public class SphericalVoxelGroup : VoxelGroup
         for ( int i = 1; i < iPhiHFactor; ++i )
             yield return vPos + i * Vector3Int.forward;
     }
-    #nullable enable
-    protected override Voxel? GetAssociatedRealBlock( Vector3Int vGhostBlockPos )
-    {
-        float fDeltaPhiL = GetDeltaPhi( vGhostBlockPos.x, vGhostBlockPos.y );
-        float fDeltaPhiH = GetDeltaPhi( vGhostBlockPos.x, vGhostBlockPos.y + 1 );
-        int iPhiHFactor = Mathf.RoundToInt( Mathf.Max( 1, fDeltaPhiH / fDeltaPhiL ) );
-
-        if ( iPhiHFactor == 1 )
-            return null; // not a ghost block
-
-        Vector3Int vPos = new( vGhostBlockPos.x, vGhostBlockPos.y, vGhostBlockPos.z / iPhiHFactor * iPhiHFactor );
-        if ( !m_pVoxels.ContainsKey( vPos ) )
-            throw new ThreadStateException( $"Impossible state - a ghost block exists but its associated real block doesn't at position {vPos.x} {vPos.y} {vPos.z}" );
-
-        return m_pVoxels[ vPos ];
-    }
-    #nullable restore
 
     public float GetDeltaTheta( int iRadCoord )
     {

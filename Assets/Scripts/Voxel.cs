@@ -27,7 +27,7 @@ public enum BlockType
     CHEESE
 }
 
-public class Voxel : MonoBehaviour
+public class Voxel : MonoBehaviour, IVoxelBase
 {
     // we assume for all voxels that the transform.position will be in the centre of the object
     public VoxelGroup? OwningGroup
@@ -58,7 +58,7 @@ public class Voxel : MonoBehaviour
     }
     [SerializeField] private Vector3Int m_vPos;
 
-    public bool m_bCalculatingExposedNormals = false;
+    public bool CalculatingExposedNormals { get; set; }
 
     public BlockType Block
     {
@@ -94,7 +94,7 @@ public class Voxel : MonoBehaviour
         return hsExposedFaces.ToList();
     }
 
-    Mesh GetOrAddMesh()
+    public Mesh GetOrAddMesh()
     {
         if ( !TryGetComponent( out MeshFilter m ) )
             m = gameObject.AddComponent<MeshFilter>();
@@ -167,7 +167,7 @@ public class Voxel : MonoBehaviour
         if ( m_pOwningGroup == null )
             return;
 
-        Vector3 vUpVector = GetUpVector();
+        Vector3 vUpVector = LocalUp;
 
         Vector2 vTopTextureMaxs;
         Vector2 vTopTextureMins;
@@ -258,7 +258,7 @@ public class Voxel : MonoBehaviour
 
     public void RefreshTriangles()
     {
-        if ( !m_bCalculatingExposedNormals || !m_pOwningGroup )
+        if ( !CalculatingExposedNormals || !m_pOwningGroup )
             return;
 
         var piAllTriangles = GetCubeTriangles();
@@ -282,21 +282,24 @@ public class Voxel : MonoBehaviour
         UpdateCollider(); // enable/disable if we have no exposed faces
     }
 
-    public Vector3 GetUpVector() 
+    public Vector3 LocalUp
     {
-        if ( m_pOwningGroup == null )
+        get
         {
-            Debug.LogError( "Trying to get up vector of a voxel with no owning group - this is probably an error" );
-            return Vector3.zero;
-        }
+            if ( m_pOwningGroup == null )
+            {
+                Debug.LogError( "Trying to get up vector of a voxel with no owning group - this is probably an error" );
+                return Vector3.zero;
+            }
 
-        return m_pOwningGroup.GetGeometry() switch
-        {
-            Geometry.CARTESIAN => Vector3.up,
-            Geometry.CYLINDRICAL => Vector3.ProjectOnPlane( Centre, Vector3.up ).normalized,
-            Geometry.SPHERICAL => Centre.normalized,
-            _ => Vector3.up,
-        };
+            return m_pOwningGroup.GetGeometry() switch
+            {
+                Geometry.CARTESIAN => Vector3.up,
+                Geometry.CYLINDRICAL => Vector3.ProjectOnPlane( Centre, Vector3.up ).normalized,
+                Geometry.SPHERICAL => Centre.normalized,
+                _ => Vector3.up,
+            };
+        }
     }
 
     void UpdateCollider()
@@ -410,5 +413,15 @@ public class Voxel : MonoBehaviour
         RemoveMesh();
         if ( TryGetComponent( out Collider c ) )
             c.enabled = false;
+    }
+
+    public Transform GetTransform()
+    {
+        return transform;
+    }
+
+    public void SetActive( bool bActive )
+    {
+        gameObject.SetActive( bActive );
     }
 }

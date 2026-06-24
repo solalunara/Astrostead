@@ -44,7 +44,7 @@ An example cylindrical voxel group is shown below, where a cylinder was initiall
 
 ## Source and Future Work
 
-The source for the project, named Astrostead, can be found at **https://github.com/solalunara/Astrostead**.
+The source for the project, named Astrostead, can be found at **https://github.com/solalunara/Astrostead**. While AI provides many benefits, it was not used in this project or in the writing of this readme/report as the aim of this project is primarily learning rather than producing a developed product at speed. Similarly, this readme/report was interesting to me on a personal level. AI has been used, however, to craft the commit message of commits done through github directly, such as updating this readme.
 
 As mentioned previously, voxel continuity in the spherical case is an active goal of the project. Another planned extension is connecting voxel groups of the same geometry and properties, such that a very large spherical/cylindrical structure could be made of many large chunks of voxels collected together in a voxel group.
 

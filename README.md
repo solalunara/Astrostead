@@ -47,3 +47,11 @@ An example cylindrical voxel group is shown below, where a cylinder was initiall
 The source for the project, named Astrostead, can be found at **https://github.com/solalunara/Astrostead**.
 
 As mentioned previously, voxel continuity in the spherical case is an active goal of the project. Another planned extension is connecting voxel groups of the same geometry and properties, such that a very large spherical/cylindrical structure could be made of many large chunks of voxels collected together in a voxel group.
+
+
+![Diagram of the problem introduced by allowing $\delta\theta$ to vary with radius in cylindrical geometry, and a mathematical description of the adjustment d necessary to the inner vertices of the voxel on the outer boundary](ReadmeImages/cylinderdrawing.png)
+
+![Partially hollowed-out cylinder constructed using a cylindrical voxel geometry, incorporating the voxel continuity effect. The cylinder represents a primitive player model, standing on the cylinder](ReadmeImages/cylinder.png)
+
+
+![Partially cut sphere constructed using a spherical voxel geometry. The cylinder again represents a primitive player model, standing on the cylinder](ReadmeImages/sphere.png)
